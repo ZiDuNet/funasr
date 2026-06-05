@@ -13,26 +13,27 @@ FROM python:3.10-slim
 LABEL maintainer="ZiDuNet"
 LABEL description="FunASR 统一语音识别服务 - OpenAI API + WebSocket + MCP + Web UI"
 
-# ── 系统依赖 ────────────────────────────────────
+# ── 系统依赖（阿里云 apt 镜像）───────────────────
 # ffmpeg:  音频格式转码（mp3/mp4→PCM）
 # git:     funasr 从魔搭下载模型时需要
 # libsndfile1: 音频文件读写
-RUN apt-get update \
+RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
     && apt-get install -y --no-install-recommends \
         ffmpeg git libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python 依赖 ─────────────────────────────────
+# ── Python 依赖（阿里云 pip 镜像）─────────────────
 WORKDIR /app
 COPY requirements.txt .
 
-# PyTorch: 根据 .env 的 DEVICE 自动选 CPU 或 GPU 版本
-# DEVICE=cpu  → pip install --index-url .../cpu   (~200MB)
-# DEVICE=cuda → pip install --index-url .../cu118 (~2GB)
-ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
-RUN pip install --upgrade pip \
-    && pip install --no-cache-dir torch torchaudio --index-url ${TORCH_INDEX} \
-    && pip install --no-cache-dir -r requirements.txt
+# PyTorch: CUDA 版本支持 CPU 回退，单镜像 CPU/GPU 通用
+RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ \
+    && pip install --no-cache-dir torch torchaudio \
+        -i https://mirrors.aliyun.com/pypi/simple/ \
+        --index-url https://download.pytorch.org/whl/cu118 \
+    && pip install --no-cache-dir -r requirements.txt \
+        -i https://mirrors.aliyun.com/pypi/simple/
 
 # ── 应用代码 ────────────────────────────────────
 COPY server/ ./server/
