@@ -278,6 +278,8 @@ class TaskManager:
                 continue
             cutoff = time.time() - DATA_TTL_DAYS * 86400
             cleaned = 0
+
+            # 1. 清理过期任务 JSON + 关联音频
             for fname in os.listdir(TASKS_DIR):
                 if not fname.endswith(".json"):
                     continue
@@ -289,12 +291,24 @@ class TaskManager:
                         cleaned += 1
                 except Exception:
                     pass
-            # 清理孤立音频文件
-            for fname in os.listdir(AUDIO_DIR):
-                fpath = os.path.join(AUDIO_DIR, fname)
-                if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
-                    os.remove(fpath)
-                    cleaned += 1
+
+            # 2. 清理孤立音频文件（data/audio/）
+            if os.path.isdir(AUDIO_DIR):
+                for fname in os.listdir(AUDIO_DIR):
+                    fpath = os.path.join(AUDIO_DIR, fname)
+                    if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+                        cleaned += 1
+
+            # 3. 清理临时上传文件（/tmp/funasr/，进程崩溃残留）
+            tmp_dir = "/tmp/funasr"
+            if os.path.isdir(tmp_dir):
+                for fname in os.listdir(tmp_dir):
+                    fpath = os.path.join(tmp_dir, fname)
+                    if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+                        cleaned += 1
+
             if cleaned:
                 logger.info(f"自动清理: 删除 {cleaned} 个过期文件（{DATA_TTL_DAYS} 天前）")
 
