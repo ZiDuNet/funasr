@@ -21,16 +21,23 @@ router = APIRouter()
 
 @router.post("/v1/audio/transcriptions")
 async def transcribe(
-    file: UploadFile = File(..., description="音频文件"),
-    language: Optional[str] = Form(default=None),
-    speaker_diarization: bool = Form(default=False),
-    speaker_group: Optional[str] = Form(default=None),
-    emotion: bool = Form(default=False),
-    events: bool = Form(default=False),
-    punctuation: bool = Form(default=True),
-    hotwords: Optional[str] = Form(default=None),
+    file: UploadFile = File(..., description="音频文件（wav/mp3/mp4/flac/m4a/ogg/webm）"),
+    language: Optional[str] = Form(default=None, description="语言提示（auto/zh/en/ja/ko/yue）"),
+    speaker_diarization: bool = Form(default=False, description="启用说话人分离，返回 segments + speaker_id"),
+    speaker_group: Optional[str] = Form(default=None, description="声纹组 ID，匹配后将 speaker_id 替换为注册名"),
+    emotion: bool = Form(default=False, description="返回情感标签（HAPPY/SAD/ANGRY/FEARFUL/DISGUSTED/SURPRISED）"),
+    events: bool = Form(default=False, description="返回事件标签列表（BGM/Applause/Laughter/Cry/Sneeze/Cough）"),
+    punctuation: bool = Form(default=True, description="标点恢复"),
+    hotwords: Optional[str] = Form(default=None, description='热词 JSON，如 {"达摩院":20}'),
 ):
-    """OpenAI 兼容音频转写 — 始终返回详细 JSON，字段按请求参数条件返回"""
+    """OpenAI 兼容音频转写
+
+    始终返回详细 JSON，字段按请求参数条件返回：
+    - 传了 emotion=true 才返回 emotion 字段
+    - 传了 events=true 才返回 events 字段
+    - 传了 speaker_diarization=true 才返回 segments（含 speaker_id）
+    - 传了 speaker_group 且启用 speaker_diarization 才做声纹匹配
+    """
     registry = ModelRegistry.get_instance()
 
     suffix = os.path.splitext(file.filename)[1] if file.filename else ".wav"
@@ -125,6 +132,7 @@ async def transcribe(
 
 @router.get("/v1/models")
 async def list_models():
+    """列出可用模型（OpenAI 兼容格式）"""
     return JSONResponse({"object": "list", "data": [
         {"id": "funasr", "object": "model", "created": 1700000000,
          "owned_by": "funasr", "ready": True,
@@ -134,6 +142,7 @@ async def list_models():
 
 @router.get("/health")
 async def health():
+    """健康检查 + 模型加载状态"""
     registry = ModelRegistry.get_instance()
     return {
         "status": "ok",

@@ -72,7 +72,7 @@
 | 👥 **声纹管理** | HTTP | `POST /api/speakers/register` | 多租户声纹注册、匹配、删除 |
 | 🌐 **Web UI** | Browser | `http://host:17767` | 浏览器管理界面（文件转写 / 实时录音 / 任务 / 声纹） |
 
-完整接口文档 → **[API.md](API.md)**
+完整接口文档 → **[API.md](API.md)**　|　Swagger 交互文档 → `http://host:17767/docs`
 
 ---
 

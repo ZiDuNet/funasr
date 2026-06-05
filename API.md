@@ -1,6 +1,6 @@
 # FunASR All-in-One API 文档
 
-**Base URL**: `http://{host}:17767`
+**Base URL**: `http://{host}:17767`　|　**Swagger**: `http://{host}:17767/docs`
 
 ---
 

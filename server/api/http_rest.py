@@ -19,15 +19,16 @@ router = APIRouter()
 
 @router.post("/recognition")
 async def recognition(
-    audio: UploadFile = File(..., description="音频文件"),
-    language: str = Form(default="auto"),
-    speaker_diarization: bool = Form(default=False),
-    speaker_group: str | None = Form(default=None),
-    emotion: bool = Form(default=False),
-    events: bool = Form(default=False),
-    punctuation: bool = Form(default=True),
-    hotwords: str | None = Form(default=None),
+    audio: UploadFile = File(..., description="音频文件（wav/mp3/mp4/flac/m4a/ogg/webm）"),
+    language: str = Form(default="auto", description="语言提示（auto/zh/en/ja/ko/yue）"),
+    speaker_diarization: bool = Form(default=False, description="启用说话人分离，返回 sentences + speaker_id"),
+    speaker_group: str | None = Form(default=None, description="声纹组 ID，匹配后将 speaker_id 替换为注册名"),
+    emotion: bool = Form(default=False, description="返回情感标签（HAPPY/SAD/ANGRY 等）"),
+    events: bool = Form(default=False, description="返回事件标签列表（BGM/Applause/Laughter 等）"),
+    punctuation: bool = Form(default=True, description="标点恢复"),
+    hotwords: str | None = Form(default=None, description='热词 JSON，如 {"达摩院":20}'),
 ):
+    """HTTP REST 同步转写 — 简单文件上传，字段按请求参数条件返回"""
     """简单文件上传转写"""
     registry = ModelRegistry.get_instance()
 

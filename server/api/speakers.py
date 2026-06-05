@@ -23,16 +23,15 @@ router = APIRouter(prefix="/api/speakers", tags=["声纹管理"])
 
 @router.post("/register")
 async def register(
-    audio: UploadFile = File(..., description="说话人的参考音频（建议 5-30 秒，单人说话）"),
+    audio: UploadFile = File(..., description="说话人的参考音频（建议 5-30 秒，单人说话，背景安静）"),
     name: str = Form(..., description="说话人名字（如'张三'）"),
     speaker_group: str | None = Form(default=None, description="已有 group_id（不传则自动创建新 group）"),
 ):
     """注册说话人声纹
 
-    - 不传 speaker_group：自动创建新 group，返回 group_id
-    - 传 speaker_group：加入到已有 group
-
-    返回的 group_id 需要保存好，后续转写时带入。
+    不传 speaker_group 自动创建新 group，传入则加入已有 group。
+    返回的 group_id 用于后续转写时传入 speaker_group 参数实现声纹匹配。
+    转写时匹配到的 segment 会自动添加 speaker 字段替换 speaker_id。
     """
     registry = ModelRegistry.get_instance()
     sv_model = registry.get_aux("sv")
