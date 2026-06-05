@@ -8,10 +8,11 @@
 <body>
 <nav class="nav">
   <span class="logo">🎙️ FunASR</span>
-  <a href="index.html">文件转写</a>
-  <a href="realtime.html">实时录音</a>
-  <a href="tasks.html">任务管理</a>
-  <a href="status.html" class="active">服务状态</a>
+  <a href="index.html">📁 文件转写</a>
+  <a href="realtime.html">🎤 实时录音</a>
+  <a href="tasks.html">📋 任务管理</a>
+  <a href="speakers.html">👥 声纹管理</a>
+  <a href="status.html" class="active">⚙️ 服务状态</a>
 </nav>
 <div class="container">
   <h1>服务状态</h1>
@@ -20,31 +21,62 @@
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h2 style="margin:0">运行状态</h2>
-      <button class="btn btn-secondary" onclick="loadStatus()">🔄 刷新</button>
+      <button class="btn btn-sm btn-secondary" onclick="loadStatus()">🔄 刷新</button>
     </div>
     <table style="margin-top:12px">
       <tr><td style="width:160px;font-weight:600">服务状态</td><td id="status">-</td></tr>
       <tr><td style="font-weight:600">运行设备</td><td id="device">-</td></tr>
-      <tr><td style="font-weight:600">已加载模型</td><td id="models">-</td></tr>
+      <tr><td style="font-weight:600">当前模型</td><td id="modelName">-</td></tr>
+      <tr><td style="font-weight:600">已加载模块</td><td id="models">-</td></tr>
     </table>
   </div>
 
   <div class="card">
-    <h2>模型说明</h2>
+    <h2 style="margin-top:0">🤔 我应该用哪个模型？</h2>
+    <div class="mode-info" style="line-height:2.2">
+      <strong>🎤 中文会议/通话 + 区分说话人</strong> → <code>MODEL=paraformer</code>（快，中文最强）<br>
+      <strong>🌍 多语言（日/韩/法/德/方言等）</strong> → <code>MODEL=fun-asr-nano</code>（31 语言）<br>
+      <strong>😊 需要情感识别/音频事件</strong> → <code>MODEL=sensevoice</code>（极快，自带情感+事件）<br>
+      <strong>🏆 最高精度，不在乎延迟</strong> → <code>MODEL=qwen3-asr</code>（52 语言，需 GPU）<br>
+      <strong>📺 直播实时字幕</strong> → 任何模型 + WebSocket 2pass 模式<br>
+      <strong>🔀 识别 + 翻译</strong> → <code>MODEL=whisper-large-v3-turbo</code>（性价比高）
+    </div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">可用模型一览（.env 中 MODEL= 切换）</h2>
+    <table>
+      <thead><tr><th>MODEL=</th><th>模型名</th><th>能力</th><th>大小</th><th>GPU</th></tr></thead>
+      <tbody>
+        <tr><td><code>sensevoice</code></td><td>SenseVoiceSmall</td><td>ASR + 情感 + 事件，中英日韩粤</td><td>234M</td><td>可选</td></tr>
+        <tr><td><code>paraformer</code></td><td>Paraformer-zh</td><td>中文生产级 ASR + 字级时间戳</td><td>220M</td><td>可选</td></tr>
+        <tr><td><code style="background:#e0f2fe;padding:2px 6px;border-radius:4px">fun-asr-nano</code></td><td>Fun-ASR-Nano</td><td>LLM-based ASR，31 语言</td><td>800M</td><td>可选</td></tr>
+        <tr><td><code>qwen3-asr</code></td><td>Qwen3-ASR-1.7B</td><td>52 语言，bf16</td><td>1.7B</td><td>⚠️ 必须</td></tr>
+        <tr><td><code>glm-asr-nano</code></td><td>GLM-ASR-Nano-2512</td><td>17 语言，bf16</td><td>1.5B</td><td>⚠️ 必须</td></tr>
+        <tr><td><code>whisper-large-v3</code></td><td>Whisper-large-v3</td><td>识别 + 翻译，多语言</td><td>1550M</td><td>可选</td></tr>
+        <tr><td><code>whisper-large-v3-turbo</code></td><td>Whisper-large-v3-turbo</td><td>识别 + 翻译，多语言（加速）</td><td>809M</td><td>可选</td></tr>
+      </tbody>
+    </table>
+    <p style="margin-top:10px;font-size:13px;color:var(--text-secondary)">💡 高亮为当前默认模型。切换模型：<code>.env</code> → <code>MODEL=xxx</code> → <code>docker compose restart</code>。首次使用自动从魔搭下载。</p>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">辅助模型（自动加载）</h2>
     <table>
       <thead><tr><th>模型</th><th>功能</th><th>状态</th></tr></thead>
       <tbody>
-        <tr><td>SenseVoiceSmall</td><td>ASR + 情感识别 + 事件检测（中英日韩粤）</td><td class="model-status" data-model="sensevoice">-</td></tr>
-        <tr><td>paraformer-zh-streaming</td><td>流式实时识别</td><td class="model-status" data-model="streaming">-</td></tr>
+        <tr><td>Paraformer-zh-streaming</td><td>流式实时识别</td><td class="model-status" data-model="streaming">-</td></tr>
         <tr><td>fsmn-vad</td><td>语音活动检测（VAD）</td><td class="model-status" data-model="vad">-</td></tr>
         <tr><td>ct-punc</td><td>标点恢复</td><td class="model-status" data-model="punc">-</td></tr>
-        <tr><td>cam++ (campplus_sv)</td><td>说话人分离/声纹识别</td><td class="model-status" data-model="sv">-</td></tr>
+        <tr><td>cam++</td><td>说话人分离 / 声纹识别</td><td class="model-status" data-model="sv">-</td></tr>
+        <tr><td>emotion2vec+large</td><td>独立情感识别</td><td class="model-status" data-model="emotion">-</td></tr>
       </tbody>
     </table>
+    <p style="margin-top:10px;font-size:13px;color:var(--text-secondary)">⚠️ Qwen3-ASR / GLM-ASR / Whisper 不支持说话人分离、情感识别、事件检测（仅 SenseVoice 和 Paraformer 支持）。</p>
   </div>
 
   <div class="card">
-    <h2>API 端点一览</h2>
+    <h2 style="margin-top:0">API 端点一览</h2>
     <table>
       <thead><tr><th>端点</th><th>方法</th><th>说明</th></tr></thead>
       <tbody>
@@ -55,6 +87,8 @@
         <tr><td><code>/api/tasks/submit</code></td><td>POST</td><td>提交异步转写任务</td></tr>
         <tr><td><code>/api/tasks</code></td><td>GET</td><td>任务列表</td></tr>
         <tr><td><code>/api/tasks/{id}</code></td><td>GET</td><td>查询任务结果</td></tr>
+        <tr><td><code>/api/speakers/register</code></td><td>POST</td><td>注册声纹</td></tr>
+        <tr><td><code>/api/speakers</code></td><td>GET</td><td>声纹组列表</td></tr>
         <tr><td><code>/ws</code></td><td>WebSocket</td><td>流式实时识别</td></tr>
         <tr><td><code>/mcp</code></td><td>Streamable HTTP</td><td>MCP 工具接入</td></tr>
         <tr><td><code>/docs</code></td><td>GET</td><td>Swagger API 文档</td></tr>
@@ -63,19 +97,20 @@
   </div>
 
   <div class="card">
-    <h2>参数化控制说明</h2>
+    <h2 style="margin-top:0">接口可控参数</h2>
     <table>
-      <thead><tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th></tr></thead>
+      <thead><tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th><th>支持模型</th></tr></thead>
       <tbody>
-        <tr><td><code>model</code></td><td>string</td><td>sensevoice</td><td>模型选择</td></tr>
-        <tr><td><code>speaker_diarization</code></td><td>bool</td><td>false</td><td>说话人分离（需 cam++ 模型）</td></tr>
-        <tr><td><code>emotion</code></td><td>bool</td><td>false</td><td>情感标签（SenseVoice 自带）</td></tr>
-        <tr><td><code>events</code></td><td>bool</td><td>false</td><td>音频事件标签（SenseVoice 自带）</td></tr>
-        <tr><td><code>punctuation</code></td><td>bool</td><td>true</td><td>标点恢复</td></tr>
-        <tr><td><code>language</code></td><td>string</td><td>auto</td><td>语言提示</td></tr>
-        <tr><td><code>response_format</code></td><td>string</td><td>json</td><td>json / verbose_json</td></tr>
+        <tr><td><code>language</code></td><td>string</td><td>auto</td><td>语言提示</td><td>全部</td></tr>
+        <tr><td><code>speaker_diarization</code></td><td>bool</td><td>false</td><td>说话人分离</td><td>SenseVoice / Paraformer</td></tr>
+        <tr><td><code>emotion</code></td><td>bool</td><td>false</td><td>情感标签</td><td>SenseVoice</td></tr>
+        <tr><td><code>events</code></td><td>bool</td><td>false</td><td>音频事件标签</td><td>SenseVoice</td></tr>
+        <tr><td><code>punctuation</code></td><td>bool</td><td>true</td><td>标点恢复</td><td>全部（Whisper 自带）</td></tr>
+        <tr><td><code>hotwords</code></td><td>string</td><td>—</td><td>热词 JSON</td><td>SenseVoice / Paraformer</td></tr>
+        <tr><td><code>response_format</code></td><td>string</td><td>json</td><td>json / verbose_json</td><td>OpenAI API</td></tr>
       </tbody>
     </table>
+    <p style="margin-top:12px;font-size:13px;color:var(--text-secondary)">💡 模型切换通过 <code>.env</code> 中 <code>MODEL=</code> 配置，不在接口参数中暴露。切换后重启容器即生效。</p>
   </div>
 </div>
 
@@ -84,11 +119,12 @@
 async function loadStatus() {
   try {
     const data = await FunASRApi.health();
+    document.title = `🎙️ ${data.model || 'FunASR'} · 服务状态`;
     document.getElementById('status').innerHTML = `<span class="badge badge-completed">运行中</span>`;
-    document.getElementById('device').textContent = data.device || '-';
+    document.getElementById('device').textContent = data.device === 'cuda' ? 'GPU (CUDA)' : 'CPU';
+    document.getElementById('modelName').textContent = data.model || '-';
     document.getElementById('models').textContent = (data.models_loaded || []).join(', ') || '无';
 
-    // 更新模型状态
     const loaded = data.models_loaded || [];
     document.querySelectorAll('.model-status').forEach(el => {
       const m = el.dataset.model;
@@ -97,6 +133,7 @@ async function loadStatus() {
         : '<span style="color:#999">未加载</span>';
     });
   } catch (e) {
+    document.title = `❌ FunASR (连接失败) · 服务状态`;
     document.getElementById('status').innerHTML = `<span class="badge badge-failed">连接失败</span>`;
   }
 }

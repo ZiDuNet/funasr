@@ -31,12 +31,14 @@ services:
     environment:
       # 核心
       - FUNASR_DEVICE=${DEVICE:-cpu}         # cpu / cuda
-      - MODEL=${MODEL:-sensevoice}           # 离线模型: sensevoice / paraformer / fun-asr-nano
+      - MODEL=${MODEL:-fun-asr-nano}         # 离线模型（见 .env.example）
       - FUNASR_PORT=17767
       # 功能开关
       - PRELOAD_ALL=${PRELOAD_ALL:-true}         # 启动时预加载模型
       - ENABLE_STREAMING=${ENABLE_STREAMING:-true} # 启用 WebSocket
       - ENABLE_MCP=${ENABLE_MCP:-true}           # 启用 MCP
+      # Token 认证（留空不认证，生产环境建议设置）
+      - API_TOKEN=${API_TOKEN:-}
       # 模型缓存
       - MODELSCOPE_CACHE=/root/.cache/modelscope
       - FUNASR_DATA_DIR=/app/data
@@ -52,6 +54,8 @@ services:
       - ./models:/root/.cache/modelscope:z
       # 数据目录：任务结果、上传音频、声纹库
       - ./data:/app/data:z
+      # Web UI：挂载后修改前端无需重新构建镜像
+      - ./web:/app/web:z
       # 热词文件（可选，无需热词可删除此映射）
       - ./hotwords.txt:/app/hotwords.txt:ro
 

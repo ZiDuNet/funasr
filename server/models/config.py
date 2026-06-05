@@ -1,7 +1,7 @@
 """FunASR 模型配置
 
 通过 .env 的 MODEL=xxx 选择离线模型，API 不暴露模型切换。
-模型首次运行时自动下载，挂载 ./models 持久化缓存。
+模型首次使用时自动从魔搭下载，挂载 ./models 持久化缓存。
 """
 
 import os
@@ -15,7 +15,7 @@ NGPU = 1 if DEVICE.startswith("cuda") else 0
 NCPU = int(os.environ.get("FUNASR_NCPU", "4"))
 
 # ── 模型选择（配置文件中切换，API 不暴露）────────
-MODEL = os.environ.get("MODEL", "sensevoice")
+MODEL = os.environ.get("MODEL", "fun-asr-nano")
 
 # ── 功能开关 ─────────────────────────────────
 PRELOAD_ALL = os.environ.get("PRELOAD_ALL", "true").lower() == "true"
@@ -49,11 +49,14 @@ DEFAULT_BATCH_THRESHOLD_S = int(os.environ.get("FUNASR_BATCH_THRESHOLD_S", "60")
 
 # ═══════════════════════════════════════════════════
 #  离线模型预设（部署时 .env 里选一个）
+#  首次使用自动从魔搭下载，后续从缓存加载
 # ═══════════════════════════════════════════════════
 
 _PRESETS = {
+    # ── 轻量级 ────────────────────────────────
     "sensevoice": {
         "name": "SenseVoiceSmall",
+        "desc": "ASR + 情感 + 事件，中英日韩粤，234M",
         "config": {
             "model": "iic/SenseVoiceSmall",
             "vad_model": "fsmn-vad",
@@ -62,6 +65,7 @@ _PRESETS = {
     },
     "paraformer": {
         "name": "Paraformer-zh",
+        "desc": "中文生产级 ASR + 字级时间戳，220M",
         "config": {
             "model": "paraformer-zh",
             "vad_model": "fsmn-vad",
@@ -70,9 +74,52 @@ _PRESETS = {
     },
     "fun-asr-nano": {
         "name": "Fun-ASR-Nano",
+        "desc": "LLM-based ASR，31 语言，800M",
         "config": {
-            "model": "FunAudioLLM/Fun-ASR-Nano-2512",  # 魔搭 ID，无需 hub="hf"
+            "model": "FunAudioLLM/Fun-ASR-Nano-2512",
             "trust_remote_code": True,
+            "vad_model": "fsmn-vad",
+            "vad_kwargs": {"max_single_segment_time": 30000},
+        },
+    },
+    # ── 大模型（需 GPU）──────────────────────
+    "qwen3-asr": {
+        "name": "Qwen3-ASR-1.7B",
+        "desc": "52 语言，1.7B，需 GPU + bf16",
+        "config": {
+            "model": "Qwen/Qwen3-ASR-1.7B",
+            "trust_remote_code": True,
+            "vad_model": "fsmn-vad",
+            "vad_kwargs": {"max_single_segment_time": 30000},
+        },
+        "dtype": "bf16",
+    },
+    "glm-asr-nano": {
+        "name": "GLM-ASR-Nano-2512",
+        "desc": "17 语言，1.5B，需 GPU + bf16",
+        "config": {
+            "model": "ZhipuAI/GLM-ASR-Nano-2512",
+            "trust_remote_code": True,
+            "vad_model": "fsmn-vad",
+            "vad_kwargs": {"max_single_segment_time": 30000},
+        },
+        "dtype": "bf16",
+    },
+    # ── Whisper ──────────────────────────────
+    "whisper-large-v3": {
+        "name": "Whisper-large-v3",
+        "desc": "识别 + 翻译，多语言，1550M",
+        "config": {
+            "model": "iic/Whisper-large-v3",
+            "vad_model": "fsmn-vad",
+            "vad_kwargs": {"max_single_segment_time": 30000},
+        },
+    },
+    "whisper-large-v3-turbo": {
+        "name": "Whisper-large-v3-turbo",
+        "desc": "识别 + 翻译，多语言，809M",
+        "config": {
+            "model": "iic/Whisper-large-v3-turbo",
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
         },
@@ -81,10 +128,21 @@ _PRESETS = {
 
 # 根据 MODEL 环境变量选择
 if MODEL in _PRESETS:
-    ASR_CONFIG = _PRESETS[MODEL]["config"]
+    preset = _PRESETS[MODEL]
+    ASR_CONFIG = preset["config"]
     ASR_CONFIG_WITH_SPK = {**ASR_CONFIG, "spk_model": "cam++"}
-    MODEL_NAME = _PRESETS[MODEL]["name"]
-    logger.info(f"离线模型: {MODEL_NAME}")
+    MODEL_NAME = preset["name"]
+
+    # 大模型需要 dtype=bf16（仅 GPU）
+    if preset.get("dtype") == "bf16":
+        if DEVICE.startswith("cuda"):
+            ASR_CONFIG["dtype"] = "bf16"
+            logger.info(f"离线模型: {MODEL_NAME} (bf16, GPU)")
+        else:
+            ASR_CONFIG["dtype"] = "float32"
+            logger.warning(f"离线模型: {MODEL_NAME} (float32, CPU 模式，大模型建议使用 GPU)")
+    else:
+        logger.info(f"离线模型: {MODEL_NAME}")
 else:
     # 兜底：直接使用 MODEL 作为模型 ID
     ASR_CONFIG = {"model": MODEL}

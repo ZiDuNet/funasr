@@ -45,14 +45,37 @@
   <div class="card">
     <h2 style="margin-top:0">识别参数</h2>
     <div class="params">
-      <div class="param"><label>模型</label><select id="model"><option value="sensevoice">SenseVoice（推荐）</option><option value="paraformer">Paraformer-zh</option></select></div>
       <div class="param"><label>语言</label><select id="language"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="ko">韩文</option><option value="yue">粤语</option></select></div>
       <div class="param"><label>输出格式</label><select id="format"><option value="verbose_json">详细（含分段+时间戳）</option><option value="json">简洁（仅文本）</option></select></div>
-      <div class="param"><label>说话人分组</label><input type="text" id="speakerGroup" placeholder='留空则不匹配声纹'></div>
-      <div class="toggle"><input type="checkbox" id="spk"><label for="spk">👥 说话人分离</label></div>
-      <div class="toggle"><input type="checkbox" id="emotion"><label for="emotion">😊 情感识别</label></div>
-      <div class="toggle"><input type="checkbox" id="events"><label for="events">🎵 事件检测</label></div>
-      <div class="toggle"><input type="checkbox" id="punc" checked><label for="punc">📝 标点恢复</label></div>
+      <div class="param"><label>说话人分组</label><input type="text" id="speakerGroup" placeholder="留空则不匹配声纹"></div>
+    </div>
+    <div class="param" style="margin-top:14px">
+      <label>热词（JSON 格式，提高特定词准确率）</label>
+      <textarea id="hotwords" class="hotwords-input" rows="2" placeholder='输入 JSON 格式热词，例如:&#10;{"达摩院": 20, "语音识别": 15}'></textarea>
+    </div>
+
+    <!-- 功能开关 -->
+    <div style="margin-top:18px">
+      <div class="toggle">
+        <input type="checkbox" id="spk">
+        <div><label for="spk">👥 说话人分离</label>
+        <div class="toggle-hint">识别音频中不同说话人，标注"说话人0/1/2..."。配合声纹注册可显示真实姓名，适用于会议、访谈等多人场景。</div></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="emotion">
+        <div><label for="emotion">😊 情感识别</label>
+        <div class="toggle-hint">检测语音中的情感状态（😊开心、😢悲伤、😠愤怒、😟惊讶等），SenseVoice 模型自带。</div></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="events">
+        <div><label for="events">🎵 事件检测</label>
+        <div class="toggle-hint">检测音频中的非语音事件，如 👏掌声、😂笑声、🎶音乐、🤧咳嗽等。</div></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="punc" checked>
+        <div><label for="punc">📝 标点恢复</label>
+        <div class="toggle-hint">自动添加逗号、句号、问号等标点符号，提升可读性。建议保持开启。</div></div>
+      </div>
     </div>
 
     <div class="btn-group">
@@ -65,17 +88,24 @@
   <div class="card" id="resultCard" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h2 style="margin:0">转写结果</h2>
-      <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('resultText').textContent)">📋 复制</button>
+      <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('resultText').textContent)">📋 复制文本</button>
     </div>
     <div class="result-meta" id="resultMeta"></div>
     <div class="result-box" id="resultText" style="white-space:pre-wrap"></div>
     <div class="timeline" id="timelineView"></div>
+    <details id="jsonDetails">
+      <summary>📋 查看/复制原始 JSON 响应</summary>
+      <div style="position:relative">
+        <button class="btn btn-sm btn-secondary" style="position:absolute;top:8px;right:8px" onclick="copyText(rawJsonStr)">📋 复制JSON</button>
+        <pre class="json-viewer" id="rawJson"></pre>
+      </div>
+    </details>
   </div>
 </div>
 
 <script src="js/api.js"></script>
 <script>
-let selectedFile = null;
+let selectedFile = null, rawJsonStr = '';
 const dropZone = document.getElementById('dropZone');
 const fileInput = document.getElementById('fileInput');
 
@@ -102,8 +132,8 @@ function clearFile() {
 }
 
 function getParams() {
+  const hw = document.getElementById('hotwords').value.trim();
   return {
-    model: document.getElementById('model').value,
     language: document.getElementById('language').value,
     response_format: document.getElementById('format').value,
     speaker_diarization: document.getElementById('spk').checked,
@@ -111,6 +141,7 @@ function getParams() {
     emotion: document.getElementById('emotion').checked,
     events: document.getElementById('events').checked,
     punctuation: document.getElementById('punc').checked,
+    hotwords: hw || undefined,
   };
 }
 
@@ -149,6 +180,11 @@ function showResult(data) {
   document.getElementById('resultCard').style.display = 'block';
   document.getElementById('resultText').textContent = data.text || '';
 
+  // 原始 JSON
+  rawJsonStr = JSON.stringify(data, null, 2);
+  document.getElementById('rawJson').textContent = rawJsonStr;
+
+  // 元信息
   const meta = [];
   if (data.model) meta.push('模型: '+data.model);
   if (data.language) meta.push('语言: '+data.language);
@@ -158,6 +194,7 @@ function showResult(data) {
   if (data.speaker_group) meta.push('声纹组: '+data.speaker_group);
   document.getElementById('resultMeta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
 
+  // 分段时间轴
   if (data.segments?.length) {
     let html = '';
     data.segments.forEach(s => {
@@ -172,6 +209,7 @@ function showResult(data) {
     document.getElementById('timelineView').innerHTML = '';
   }
 }
+initPage('文件转写');
 </script>
 </body>
 </html>

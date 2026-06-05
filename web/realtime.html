@@ -20,26 +20,67 @@
   <p class="desc">浏览器麦克风实时语音识别，支持流式/离线/2pass</p>
 
   <div class="card">
+    <h2 style="margin-top:0">识别参数</h2>
     <div class="params">
       <div class="param"><label>识别模式</label><select id="mode"><option value="2pass">2pass（实时+离线修正）</option><option value="online">online（纯实时）</option><option value="offline">offline（离线整句）</option></select></div>
-      <div class="param"><label>热词</label><input type="text" id="hotwords" placeholder='如: {"Hello":20}'></div>
     </div>
+    <div class="param" style="margin-top:14px">
+      <label>热词（JSON 格式）</label>
+      <textarea id="hotwords" class="hotwords-input" rows="2" placeholder='输入 JSON 格式热词，例如:&#10;{"达摩院": 20, "语音识别": 15}'></textarea>
+    </div>
+
+    <!-- 功能开关 -->
+    <div style="margin-top:14px">
+      <div class="toggle">
+        <input type="checkbox" id="spk">
+        <div><label for="spk">👥 说话人分离</label>
+        <div class="toggle-hint">识别不同说话人并标注编号。所有模式均支持。</div></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="emotion">
+        <div><label for="emotion">😊 情感识别</label>
+        <div class="toggle-hint">检测语音情感。仅 <strong>offline/2pass</strong> 模式的离线结果包含情感标签。</div></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="events">
+        <div><label for="events">🎵 事件检测</label>
+        <div class="toggle-hint">检测掌声/笑声/音乐等事件。仅 <strong>offline/2pass</strong> 模式的离线结果包含事件标签。</div></div>
+      </div>
+    </div>
+
+    <!-- 模式说明 -->
+    <div class="mode-info">
+      <strong>2pass（推荐）</strong>：先返回实时中间结果，VAD 断句后用离线模型修正。离线结果含情感标签、事件检测。<br>
+      <strong>online</strong>：纯流式，延迟最低（~300ms），仅文字，不含情感/事件/标点。<br>
+      <strong>offline</strong>：VAD 断句后离线识别，含情感/事件/标点，但无实时中间结果。
+    </div>
+  </div>
+
+  <div class="card">
     <button class="record-btn" id="recordBtn" onclick="toggleRecord()">🎤</button>
     <div style="text-align:center;font-size:14px" id="statusText">点击按钮开始录音</div>
+    <div id="micHint" style="display:none;text-align:center;font-size:12px;color:var(--danger);margin-top:8px"></div>
   </div>
 
   <div class="card">
     <h2 style="margin-top:0">识别结果</h2>
     <div style="display:flex;gap:10px;margin-bottom:12px">
-      <button class="btn btn-sm btn-secondary" onclick="copyText(finalHistory.join('\\n'))">📋 复制全部</button>
+      <button class="btn btn-sm btn-secondary" onclick="copyText(finalHistory.join('\n'))">📋 复制全部</button>
       <button class="btn btn-sm btn-danger" onclick="clearHistory()">🗑 清空</button>
     </div>
     <div class="live-text" id="liveText"><span style="color:#ccc">等待录音...</span></div>
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">历史记录 <span id="histCount" style="font-size:13px;color:#999"></span></h2>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">历史记录 <span id="histCount" style="font-size:13px;color:#999"></span></h2>
+      <span id="histSpkNote" style="font-size:12px;color:var(--text-secondary)"></span>
+    </div>
     <div id="history" style="max-height:300px;overflow-y:auto;font-size:14px"></div>
+    <details id="wsJsonDetails" style="margin-top:12px">
+      <summary>📋 查看最近一条原始 JSON</summary>
+      <pre class="json-viewer" id="wsRawJson"></pre>
+    </details>
   </div>
 </div>
 
@@ -53,32 +94,55 @@ function toggleRecord() { recording ? stopRecord() : startRecord(); }
 
 async function startRecord() {
   const btn = document.getElementById('recordBtn');
+  const hint = document.getElementById('micHint');
+  hint.style.display = 'none';
   try {
     recorder = new PCMRecorder(data => ws?.sendAudio(data));
     await recorder.start();
     ws = new FunASRWebSocket(handleMsg, handleState);
-    ws.connect(document.getElementById('mode').value, '5,10,5', 10, document.getElementById('hotwords').value);
+    const useSpk = document.getElementById('spk').checked;
+    ws.connect(document.getElementById('mode').value, '5,10,5', 10, document.getElementById('hotwords').value, useSpk);
     recording = true; btn.classList.add('recording'); btn.textContent = '⏹';
     document.getElementById('statusText').textContent = '录音中... 请说话';
     partialText = ''; document.getElementById('liveText').innerHTML = '';
-  } catch(e) { toast('无法访问麦克风: '+e.message, 'error'); }
+  } catch(e) {
+    const msg = e.message;
+    toast(msg, 'error', 5000);
+    hint.textContent = msg;
+    hint.style.display = 'block';
+  }
 }
 
 function stopRecord() {
   recorder?.stop(); ws?.stop(); setTimeout(() => ws?.close(), 2000);
   recording = false;
-  document.getElementById('recordBtn').classList.remove('recording'); document.getElementById('recordBtn').textContent = '🎤';
+  document.getElementById('recordBtn').classList.remove('recording');
+  document.getElementById('recordBtn').textContent = '🎤';
   document.getElementById('statusText').textContent = '已停止';
 }
 
+let lastRawJson = '';
 function handleMsg(data) {
   const el = document.getElementById('liveText');
+
+  // 保存原始 JSON
+  lastRawJson = JSON.stringify(data, null, 2);
+  document.getElementById('wsRawJson').textContent = lastRawJson;
+
   if (data.mode === '2pass-online' || data.mode === 'online') {
-    partialText = data.text;
+    partialText = data.text || '';
     el.innerHTML = finalHistory.map(t => `<span class="final">${t}</span><br>`).join('') + `<span class="partial">${partialText}</span>`;
   }
   if (data.mode === '2pass-offline' || (data.mode === 'offline' && data.is_final)) {
-    if (data.text) finalHistory.push(data.text);
+    const displayText = data.clean_text || data.text || '';
+    if (displayText) {
+      // 提取情感标签用于展示
+      const emoMatch = data.text?.match(/<\|(\w+)\|>/g);
+      const emoTag = emoMatch ? emoMatch.filter(t => !['zh','en','ja','ko','yue','auto'].includes(t.replace(/[<>|]/g,''))).join(' ') : '';
+      const spkInfo = data.sentence_info?.map(s => `说话人${s.spk ?? '?'}`).filter((v,i,a) => a.indexOf(v)===i).join(', ');
+      const label = [emoTag, spkInfo].filter(Boolean).join(' | ');
+      finalHistory.push(displayText + (label ? `  [${label}]` : ''));
+    }
     partialText = '';
     el.innerHTML = finalHistory.map(t => `<span class="final">${t}</span><br>`).join('');
     document.getElementById('histCount').textContent = `(${finalHistory.length} 句)`;
@@ -98,7 +162,14 @@ function updateHistory() {
   ).join('');
 }
 
-function clearHistory() { finalHistory=[]; document.getElementById('history').innerHTML=''; document.getElementById('histCount').textContent=''; document.getElementById('liveText').innerHTML='<span style="color:#999">等待录音...</span>'; }
+function clearHistory() {
+  finalHistory=[];
+  document.getElementById('history').innerHTML='';
+  document.getElementById('histCount').textContent='';
+  document.getElementById('liveText').innerHTML='<span style="color:#999">等待录音...</span>';
+  document.getElementById('wsRawJson').textContent = '';
+}
+initPage('实时录音');
 </script>
 </body>
 </html>

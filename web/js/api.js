@@ -1,6 +1,34 @@
-/* API 调用封装 + Toast 通知 */
+/* API 调用封装 + Toast + Token 管理 */
 
-const API_BASE = window.location.origin;
+// 兼容 file:// 协议
+const API_BASE = (window.location.protocol === 'file:' || window.location.origin === 'null')
+  ? 'http://localhost:17767'
+  : window.location.origin;
+
+// ── Token 管理 ──────────────────────────────────
+function getToken() { return localStorage.getItem('funasr_token') || ''; }
+function setToken(t) { localStorage.setItem('funasr_token', t); }
+
+function promptToken() {
+  const current = getToken();
+  const token = window.prompt('请输入 API Token（服务端 .env 中 API_TOKEN 的值）：', current);
+  if (token !== null) {
+    setToken(token.trim());
+    toast(token.trim() ? '🔑 Token 已保存' : 'Token 已清除，刷新页面生效', 'success');
+  }
+}
+
+// 页面加载后注入 Token 按钮到导航
+document.addEventListener('DOMContentLoaded', () => {
+  const nav = document.querySelector('.nav');
+  if (!nav) return;
+  const a = document.createElement('a');
+  a.href = '#';
+  a.textContent = getToken() ? '🔑 已认证' : '🔑 Token';
+  a.onclick = (e) => { e.preventDefault(); promptToken(); a.textContent = getToken() ? '🔑 已认证' : '🔑 Token'; };
+  a.style.marginLeft = 'auto';
+  nav.appendChild(a);
+});
 
 // ── Toast ────────────────────────────────────────
 function toast(msg, type = 'info', duration = 3000) {
@@ -26,7 +54,12 @@ function copyText(text) {
 // ── API ──────────────────────────────────────────
 class FunASRApi {
   static async request(path, opts = {}) {
+    const token = getToken();
+    if (token) {
+      opts.headers = { ...(opts.headers || {}), 'Authorization': `Bearer ${token}` };
+    }
     const resp = await fetch(`${API_BASE}${path}`, opts);
+    if (resp.status === 401) { toast('🔑 Token 无效或缺失，请点击导航栏 Token 按钮设置', 'error', 5000); }
     if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${(await resp.text()).slice(0,200)}`);
     return resp.json();
   }
@@ -66,4 +99,16 @@ class FunASRApi {
   static listSpeakerGroups() { return this.request('/api/speakers'); }
   static getSpeakers(groupId) { return this.request(`/api/speakers/${groupId}`); }
   static deleteSpeaker(groupId, name) { return this.request(`/api/speakers/${groupId}/${encodeURIComponent(name)}`, { method:'DELETE' }); }
+}
+
+// ── 页面初始化（标题显示模型名 + 连接状态）──────────
+async function initPage(pageName) {
+  try {
+    const data = await FunASRApi.health();
+    document.title = `🎙️ ${data.model || 'FunASR'} · ${pageName}`;
+    return data;
+  } catch(e) {
+    document.title = `❌ FunASR (连接失败) · ${pageName}`;
+    return null;
+  }
 }

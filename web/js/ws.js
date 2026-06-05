@@ -8,15 +8,18 @@ class FunASRWebSocket {
     this.connected = false;
   }
 
-  connect(mode = '2pass', chunkSize = '5,10,5', chunkInterval = 10, hotwords = '') {
+  connect(mode = '2pass', chunkSize = '5,10,5', chunkInterval = 10, hotwords = '', speakerDiarization = false) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    this.ws = new WebSocket(`${proto}//${location.host}/ws`, ['binary']);
+    const host = (location.protocol === 'file:' || location.origin === 'null') ? 'localhost:17767' : location.host;
+    const token = localStorage.getItem('funasr_token') || '';
+    const wsUrl = token ? `${proto}//${host}/ws?token=${encodeURIComponent(token)}` : `${proto}//${host}/ws`;
+    this.ws = new WebSocket(wsUrl, ['binary']);
 
     this.ws.onopen = () => {
       this.connected = true;
       this.onStateChange?.('connected');
       // 发送初始配置
-      this.ws.send(JSON.stringify({
+      const cfg = {
         mode,
         chunk_size: chunkSize.split(',').map(Number),
         chunk_interval: chunkInterval,
@@ -25,8 +28,10 @@ class FunASRWebSocket {
         wav_format: 'pcm',
         audio_fs: 16000,
         itn: true,
-        hotwords: hotwords,
-      }));
+        speaker_diarization: speakerDiarization,
+      };
+      if (hotwords) cfg.hotwords = hotwords;
+      this.ws.send(JSON.stringify(cfg));
     };
 
     this.ws.onmessage = (event) => {
@@ -82,6 +87,19 @@ class PCMRecorder {
   }
 
   async start() {
+    // 浏览器安全策略：麦克风仅限 HTTPS 或 localhost
+    if (!navigator.mediaDevices?.getUserMedia) {
+      const isFile = location.protocol === 'file:';
+      const isHttp = location.protocol === 'http:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1';
+      if (isFile) {
+        throw new Error('请通过 http://localhost:17767 访问，不要直接打开 HTML 文件。');
+      }
+      if (isHttp) {
+        throw new Error('浏览器安全策略禁止 HTTP 页面访问麦克风。请使用 http://localhost 或配置 HTTPS 访问。');
+      }
+      throw new Error('浏览器不支持麦克风访问，请使用最新版 Chrome/Edge。');
+    }
+
     this.stream = await navigator.mediaDevices.getUserMedia({
       audio: { sampleRate: this.sampleRate, channelCount: 1, echoCancellation: true }
     });
