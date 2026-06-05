@@ -65,7 +65,7 @@
   <div class="card">
     <h2 style="margin-top:0">识别结果</h2>
     <div style="display:flex;gap:10px;margin-bottom:12px">
-      <button class="btn btn-sm btn-secondary" onclick="copyText(finalHistory.join('\n'))">📋 复制全部</button>
+      <button class="btn btn-sm btn-secondary" onclick="copyText(accumulatedText)">📋 复制全文</button>
       <button class="btn btn-sm btn-danger" onclick="clearHistory()">🗑 清空</button>
     </div>
     <div class="live-text" id="liveText"><span style="color:#ccc">等待录音...</span></div>
@@ -88,7 +88,7 @@
 <script src="js/api.js"></script>
 <script>
 let ws = null, recorder = null, recording = false;
-let partialText = '', finalHistory = [];
+let partialText = '', accumulatedText = '', finalHistory = [];
 
 function toggleRecord() { recording ? stopRecord() : startRecord(); }
 
@@ -104,7 +104,8 @@ async function startRecord() {
     ws.connect(document.getElementById('mode').value, '5,10,5', 10, document.getElementById('hotwords').value, useSpk);
     recording = true; btn.classList.add('recording'); btn.textContent = '⏹';
     document.getElementById('statusText').textContent = '录音中... 请说话';
-    partialText = ''; document.getElementById('liveText').innerHTML = '';
+    partialText = ''; accumulatedText = ''; finalHistory = [];
+    document.getElementById('liveText').innerHTML = '';
   } catch(e) {
     const msg = e.message;
     toast(msg, 'error', 5000);
@@ -131,20 +132,21 @@ function handleMsg(data) {
 
   if (data.mode === '2pass-online' || data.mode === 'online') {
     partialText = data.text || '';
-    el.innerHTML = finalHistory.map(t => `<span class="final">${t}</span><br>`).join('') + `<span class="partial">${partialText}</span>`;
+    // 累积正文 + 实时临时文本
+    el.innerHTML = `<span class="final">${accumulatedText}</span><span class="partial">${partialText}</span>`;
   }
   if (data.mode === '2pass-offline' || (data.mode === 'offline' && data.is_final)) {
     const displayText = data.clean_text || data.text || '';
     if (displayText) {
-      // 提取情感标签用于展示
-      const emoMatch = data.text?.match(/<\|(\w+)\|>/g);
-      const emoTag = emoMatch ? emoMatch.filter(t => !['zh','en','ja','ko','yue','auto'].includes(t.replace(/[<>|]/g,''))).join(' ') : '';
+      // 累积拼接
+      accumulatedText += displayText;
+      // 提取情感/说话人标签用于历史记录
       const spkInfo = data.sentence_info?.map(s => `说话人${s.spk ?? '?'}`).filter((v,i,a) => a.indexOf(v)===i).join(', ');
-      const label = [emoTag, spkInfo].filter(Boolean).join(' | ');
+      const label = [data.emotion, spkInfo].filter(Boolean).join(' | ');
       finalHistory.push(displayText + (label ? `  [${label}]` : ''));
     }
     partialText = '';
-    el.innerHTML = finalHistory.map(t => `<span class="final">${t}</span><br>`).join('');
+    el.innerHTML = `<span class="final">${accumulatedText}</span>`;
     document.getElementById('histCount').textContent = `(${finalHistory.length} 句)`;
     updateHistory();
   }
@@ -163,10 +165,10 @@ function updateHistory() {
 }
 
 function clearHistory() {
-  finalHistory=[];
-  document.getElementById('history').innerHTML='';
-  document.getElementById('histCount').textContent='';
-  document.getElementById('liveText').innerHTML='<span style="color:#999">等待录音...</span>';
+  accumulatedText = ''; finalHistory = [];
+  document.getElementById('history').innerHTML = '';
+  document.getElementById('histCount').textContent = '';
+  document.getElementById('liveText').innerHTML = '<span style="color:#999">等待录音...</span>';
   document.getElementById('wsRawJson').textContent = '';
 }
 initPage('实时录音');
