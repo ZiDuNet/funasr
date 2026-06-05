@@ -10,8 +10,8 @@ from funasr import AutoModel
 from server.models.config import (
     DEVICE, NGPU, NCPU, WORKER_THREADS,
     CONCURRENT_VAD, CONCURRENT_ASR_ONLINE, CONCURRENT_ASR_OFFLINE,
-    CONCURRENT_PUNC, CONCURRENT_SV,
-    MODEL_CONFIGS, STREAMING_MODEL, VAD_MODEL, PUNC_MODEL, SV_MODEL,
+    CONCURRENT_PUNC, CONCURRENT_SV, CONCURRENT_EMOTION,
+    MODEL_CONFIGS, STREAMING_MODEL, VAD_MODEL, PUNC_MODEL, SV_MODEL, EMOTION_MODEL,
 )
 
 logger = logging.getLogger(__name__)
@@ -39,6 +39,7 @@ class ModelRegistry:
         self.sem_asr_offline = asyncio.Semaphore(CONCURRENT_ASR_OFFLINE)
         self.sem_punc = asyncio.Semaphore(CONCURRENT_PUNC)
         self.sem_sv = asyncio.Semaphore(CONCURRENT_SV)
+        self.sem_emotion = asyncio.Semaphore(CONCURRENT_EMOTION)
 
     @classmethod
     def get_instance(cls) -> "ModelRegistry":
@@ -109,6 +110,26 @@ class ModelRegistry:
             logger.info("cam++ 加载完成")
         return self._models["sv"]
 
+    def _load_emotion(self) -> AutoModel:
+        """加载 emotion2vec（独立情感识别，比 SenseVoice 自带更准）"""
+        if "emotion" not in self._models:
+            logger.info("加载模型: emotion2vec_plus_large ...")
+            cfg = EMOTION_MODEL.copy()
+            cfg.update(self._base_kwargs())
+            self._models["emotion"] = AutoModel(**cfg)
+            logger.info("emotion2vec 加载完成")
+        return self._models["emotion"]
+
+    def _load_funasr_nano(self) -> AutoModel:
+        """加载 Fun-ASR-Nano（31 语言，LLM-based，自带标点）"""
+        if "funasr_nano" not in self._models:
+            logger.info("加载模型: Fun-ASR-Nano (31语言) ...")
+            cfg = MODEL_CONFIGS["fun-asr-nano"].copy()
+            cfg.update(self._base_kwargs())
+            self._models["funasr_nano"] = AutoModel(**cfg)
+            logger.info("Fun-ASR-Nano 加载完成")
+        return self._models["funasr_nano"]
+
     # ── 获取模型（同步，需在启动时或线程池中调用）──────────
 
     def get(self, name: str) -> AutoModel:
@@ -118,6 +139,8 @@ class ModelRegistry:
             "vad": self._load_vad,
             "punc": self._load_punc,
             "sv": self._load_sv,
+            "emotion": self._load_emotion,
+            "funasr_nano": self._load_funasr_nano,
         }
         if name not in loaders:
             raise ValueError(f"未知模型: {name}，可用: {list(loaders.keys())}")
@@ -133,13 +156,15 @@ class ModelRegistry:
         self.get("vad")
         self.get("punc")
         self.get("sv")
+        self.get("emotion")
         logger.info("所有模型加载完成！")
 
     def preload_core(self):
-        """只加载核心模型（不含 sv、streaming）"""
+        """只加载核心离线模型（SenseVoice + VAD）"""
         logger.info(f"预加载核心模型 (device={self.device}) ...")
         self.get("sensevoice")
         self.get("vad")
+        self.get("emotion")
         logger.info("核心模型加载完成")
 
     # ── 状态查询 ───────────────────────────────────────

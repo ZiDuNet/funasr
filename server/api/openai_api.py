@@ -42,9 +42,16 @@ async def transcribe(
         pcm_bytes = await convert_to_pcm(tmp_path)
 
         asr_model = registry.get(model)
-        gen_kwargs = {"batch_size_s": 300}
-        if language and language != "auto":
-            gen_kwargs["language"] = language
+        gen_kwargs = {
+            "batch_size_s": getattr(registry, "batch_size_s", 300),
+            "language": language or "auto",
+            "use_itn": True,
+        }
+        # SenseVoice 官方推荐：合并短句 + 防 OOM
+        if model == "sensevoice":
+            gen_kwargs["merge_vad"] = True
+            gen_kwargs["merge_length_s"] = 15
+            gen_kwargs["batch_size_threshold_s"] = 60
 
         t0 = time.time()
         result_list = await run_blocking(
@@ -117,8 +124,13 @@ async def list_models():
     registry = ModelRegistry.get_instance()
     models = [
         {"id": n, "object": "model", "created": 1700000000, "owned_by": "funasr",
-         "ready": n in registry.loaded_models()}
-        for n in ("sensevoice", "paraformer")
+         "ready": any(m in registry.loaded_models() for m in ("sensevoice", "paraformer")),
+         "description": desc}
+        for n, desc in [
+            ("sensevoice", "ASR + 情感 + 事件 (5 语言)"),
+            ("paraformer", "中文生产级 ASR + 时间戳"),
+            ("fun-asr-nano", "LLM-based ASR (31 语言)"),
+        ]
     ]
     return JSONResponse({"object": "list", "data": models})
 
