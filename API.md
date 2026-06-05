@@ -547,8 +547,8 @@ Streamable HTTP 协议，支持 Claude Desktop / Cursor / Claude Code 接入。
 | 传入参数 | 输出字段 | 说明 |
 |----------|---------|------|
 | （无） | `text` | 仅返回清洗后的纯文本 |
-| `emotion=true` | + `emotion` | 情感 emoji，如 `"😊"` |
-| `events=true` | + `events` | 事件 emoji 列表，如 `["👏","😂"]` |
+| `emotion=true` | + `emotion` | 情感标签名，如 `"HAPPY"` |
+| `events=true` | + `events` | 事件标签名，如 `["BGM","Applause"]` |
 | `speaker_diarization=true` | + `segments[]` | 分段数组，每段含 `text`/`start`/`end`/`speaker_id` |
 | `speaker_group=xxx` | `segments[].speaker` | 匹配到的 segment 添加 `speaker` 字段（注册名），未匹配保留数字 `speaker_id` |
 
@@ -557,13 +557,15 @@ Streamable HTTP 协议，支持 Claude Desktop / Cursor / Claude Code 接入。
 | 字段 | 类型 | 来源 | 说明 |
 |------|------|------|------|
 | `text` | string | 始终 | 清洗后的纯文本（去除 `<\|...\|>` 标签） |
-| `emotion` | string | SenseVoice | 情感标签名：HAPPY/SAD/ANGRY/FEARFUL/DISGUSTED/SURPRISED |
-| `events` | string[] | SenseVoice | 事件标签名列表：BGM/Applause/Laughter/Cry/Sneeze/Cough |
+| `emotion` | string | SenseVoice(内置) / emotion2vec(辅助) | 情感标签名：HAPPY/SAD/ANGRY/FEARFUL/DISGUSTED/SURPRISED |
+| `events` | string[] | SenseVoice(仅内置) | 事件标签名列表：BGM/Applause/Laughter/Cry/Sneeze/Cough |
 | `segments[].text` | string | 说话人分离 | 清洗后的分段文本 |
 | `segments[].start` | number | 说话人分离 | 开始时间（毫秒） |
 | `segments[].end` | number | 说话人分离 | 结束时间（毫秒） |
-| `segments[].speaker_id` | int | 说话人分离 | cam++ 聚类编号（0, 1, 2...） |
-| `segments[].speaker` | string | 声纹匹配 | 声纹库匹配到的注册名（仅异步任务） |
+| `segments[].speaker_id` | int | cam++ | 聚类编号（0, 1, 2...），所有模型支持 |
+| `segments[].speaker` | string | 声纹匹配 | 声纹库匹配到的注册名 |
+
+**模型兼容**：说话人分离(cam++)和标点恢复(ct-punc)所有模型均支持。情感(SenseVoice内置/emotion2vec辅助)。事件仅SenseVoice内置。
 
 ### 公共参数
 
