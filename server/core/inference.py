@@ -84,11 +84,20 @@ async def infer_asr_online(audio_input, status_dict: dict) -> dict:
     return out[0] if out else {}
 
 
-async def infer_asr_offline_ws(audio_input, status_dict: dict) -> dict:
+async def infer_asr_offline_ws(audio_input, status_dict: dict, speaker_diarization: bool = False) -> dict:
     """离线 ASR 推理（WebSocket offline / 2pass 使用）"""
     registry = ModelRegistry.get_instance()
+    model_name = "sensevoice_spk" if speaker_diarization else "sensevoice"
+    # merge_vad 合并短句，提升说话人分离效果
+    gen_kwargs = status_dict.copy()
+    gen_kwargs.setdefault("batch_size_s", 300)
+    gen_kwargs.setdefault("merge_vad", True)
+    gen_kwargs.setdefault("merge_length_s", 15)
+    gen_kwargs.setdefault("batch_size_threshold_s", 60)
+    gen_kwargs.setdefault("language", "auto")
+    gen_kwargs.setdefault("use_itn", True)
     out = await run_blocking(
-        _generate_sync, registry.get("sensevoice"), audio_input, **status_dict,
+        _generate_sync, registry.get(model_name), audio_input, **gen_kwargs,
         sem=registry.sem_asr_offline,
     )
     return out[0] if out else {}

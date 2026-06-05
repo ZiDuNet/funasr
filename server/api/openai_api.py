@@ -13,6 +13,7 @@ from server.core.audio import convert_to_pcm, save_temp_upload
 from server.core.postprocess import clean_text, extract_emotion, extract_events
 from server.core.speaker_db import match_speaker
 from server.models.registry import ModelRegistry
+from server.models.config import DEFAULT_BATCH_SIZE_S, DEFAULT_BATCH_THRESHOLD_S
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
@@ -41,9 +42,13 @@ async def transcribe(
     try:
         pcm_bytes = await convert_to_pcm(tmp_path)
 
-        asr_model = registry.get(model)
+        asr_model = registry.get(model)  # 基础模型
+
+        # 说话人分离：用带 spk_model 的版本
+        if speaker_diarization and model == "sensevoice":
+            asr_model = registry.get("sensevoice_spk")
         gen_kwargs = {
-            "batch_size_s": getattr(registry, "batch_size_s", 300),
+            "batch_size_s": DEFAULT_BATCH_SIZE_S,
             "language": language or "auto",
             "use_itn": True,
         }

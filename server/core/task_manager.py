@@ -242,7 +242,11 @@ class TaskManager:
                     gen_kwargs["language"] = task.language
 
                 registry = ModelRegistry.get_instance()
-                model = registry.get(task.model)
+                model_name = "sensevoice_spk" if task.speaker_diarization else task.model
+                model = registry.get(model_name)
+                gen_kwargs["merge_vad"] = True
+                gen_kwargs["merge_length_s"] = 15
+                gen_kwargs["batch_size_threshold_s"] = 60
                 result_list = await run_blocking(
                     _generate_sync, model, pcm_bytes,
                     sem=registry.sem_asr_offline,
