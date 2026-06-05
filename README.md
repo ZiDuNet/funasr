@@ -51,29 +51,17 @@ curl http://localhost:17767/health
 ## GPU 模式
 
 ```bash
-# .env 中修改两处:
-#   DEVICE=cuda                          ← 选 GPU
-#   TORCH_INDEX=https://download.pytorch.org/whl/cu118  ← GPU 版 PyTorch
-#
-# docker-compose.yml 中取消 deploy 部分的注释
-#   deploy:
-#     resources:
-#       reservations:
-#         devices:
-#           - driver: nvidia
-#             count: all
-#             capabilities: [gpu]
-
-docker compose down && docker compose up --build -d
+# .env 中修改 DEVICE=cuda，docker-compose.yml 取消 deploy 注释，重启即可
+docker compose down && docker compose up -d
 ```
 
-> 构建时自动选 PyTorch 版本：CPU ~200MB / GPU ~2GB，无需手动改 Dockerfile。
+> **单一镜像**，CPU/GPU 通用。CUDA 版 PyTorch 同时支持 CPU 回退，无需重新构建。
 
 ## 配置
 
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
-| `DEVICE` | `cpu` | `cpu` / `cuda` |
+| `DEVICE` | `cpu` | `cpu` / `cuda`（同一镜像，无需重建） |
 | `MODEL` | `sensevoice` | 离线模型: sensevoice / paraformer / fun-asr-nano |
 | `PRELOAD_ALL` | `true` | 启动预加载所有模型 |
 | `ENABLE_STREAMING` | `true` | WebSocket 流式 |
@@ -81,6 +69,12 @@ docker compose down && docker compose up --build -d
 | `DATA_TTL_DAYS` | `7` | 任务保留天数 |
 
 完整参数见 `.env.example`。
+
+## 构建说明
+
+- **单一镜像** ~2.5GB，CUDA PyTorch 同时支持 CPU 推理，无需分版本构建
+- **国内加速**：apt/pip 已配置阿里云镜像，模型从魔搭下载（国内快）
+- **挂载持久化**：`./models` 缓存模型（重启不丢失），`./data` 存储任务和声纹
 
 ## API 速览
 
