@@ -10,7 +10,7 @@ from server.core.inference import (
 )
 from server.core.audio import pcm_duration_ms
 from server.core.postprocess import clean_text, extract_emotion, extract_events
-from server.core.speaker_db import match_segments
+from server.core.speaker_db import match_segments, SpeakerTracker
 from server.models.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
@@ -40,6 +40,9 @@ def register_ws_endpoint(app):
             "status_vad": {"cache": {}, "is_final": False},
             "status_punc": {"cache": {}},
         }
+
+        # 跨段说话人追踪器（流式中维护全局 speaker_id 一致性）
+        speaker_tracker = None
 
         frames, frames_asr, frames_asr_online = [], [], []
         speech_start, speech_end_i = False, -1
@@ -161,21 +164,31 @@ def register_ws_endpoint(app):
 
                                         if text:
                                             mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]
-                                            # 声纹匹配（需同时启用 speaker_diarization + speaker_group）
+                                            # ── 说话人处理 ──
                                             sentence_info = rec.get("sentence_info")
-                                            if (state.get("speaker_diarization")
-                                                    and state.get("speaker_group")
-                                                    and sentence_info):
-                                                # match_segments 使用 speaker_id 字段
-                                                for si in sentence_info:
-                                                    if "spk" in si:
-                                                        si["speaker_id"] = si["spk"]
+                                            if state.get("speaker_diarization") and sentence_info:
                                                 registry = ModelRegistry.get_instance()
-                                                match_segments(
-                                                    sentence_info, audio_in,
-                                                    state["speaker_group"],
-                                                    registry.get_aux("sv"),
-                                                )
+
+                                                # 1. 跨段一致性追踪（全局 speaker_id）
+                                                if speaker_tracker is None:
+                                                    speaker_tracker = SpeakerTracker(
+                                                        registry.get_aux("sv"))
+                                                sentence_info = speaker_tracker.track(
+                                                    sentence_info, audio_in)
+
+                                                # 2. 声纹匹配（speaker_group → 注册名）
+                                                if state.get("speaker_group"):
+                                                    for si in sentence_info:
+                                                        if "spk" in si:
+                                                            si["speaker_id"] = si["spk"]
+                                                    match_segments(
+                                                        sentence_info, audio_in,
+                                                        state["speaker_group"],
+                                                        registry.get_aux("sv"),
+                                                    )
+                                                    # 清理临时字段
+                                                    for si in sentence_info:
+                                                        si.pop("speaker_id", None)
 
                                             resp = {
                                                 "mode": mode_label,

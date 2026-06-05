@@ -173,3 +173,94 @@ def match_segments(segments: list[dict], pcm_bytes: bytes,
         except Exception as e:
             logger.warning(f"声纹匹配失败 speaker_id={spk_id}: {e}")
             seen_speakers[spk_id] = None
+
+
+class SpeakerTracker:
+    """流式跨段说话人追踪 — 维护全局 speaker_id 一致性
+
+    解决流式 2pass/offline 模式中每段独立聚类导致的
+    说话人编号跳跃问题（第一段的 speaker 0 可能不是
+    第二段的 speaker 0）。
+
+    在 WebSocket 连接生命周期内维护一个全局 embedding 库，
+    每段新 embedding 先和已知说话人比对（余弦相似度），
+    匹配上则继承已有 ID，否则分配新 ID。
+    """
+
+    def __init__(self, sv_model, threshold: float = 0.6):
+        self.next_id = 0
+        self.centroids: dict[int, np.ndarray] = {}  # global_id → centroid
+        self.threshold = threshold
+        self.sv_model = sv_model
+
+    def track(self, segments: list[dict], pcm_bytes: bytes) -> list[dict]:
+        """重新分配一致的 speaker_id
+
+        Args:
+            segments: 单段离线结果中的 sentence_info 列表
+                      (含 spk, start, end 字段; start/end 毫秒)
+            pcm_bytes: 当前 VAD 段的 16kHz 16bit PCM 原始音频
+
+        Returns:
+            修改后的 segments，speaker_id 为全局一致编号
+        """
+        if not segments:
+            return segments
+
+        from scipy.spatial.distance import cosine
+
+        bytes_per_ms = 32000 / 1000
+        # 当前段内的本地 spk → 新 embedding
+        local_embeddings: dict[int, np.ndarray] = {}
+
+        for seg in segments:
+            spk = seg.get("spk")
+            if spk is None:
+                continue
+            if spk in local_embeddings:
+                continue
+
+            start_byte = int(seg.get("start", 0) * bytes_per_ms)
+            end_byte = int(seg.get("end", 0) * bytes_per_ms)
+            seg_audio = pcm_bytes[start_byte:end_byte]
+
+            if len(seg_audio) < 1600:
+                continue
+
+            try:
+                emb = extract_embedding(self.sv_model, seg_audio)
+                if emb is not None:
+                    local_embeddings[spk] = np.array(emb, dtype=np.float32)
+            except Exception as e:
+                logger.warning(f"SpeakerTracker 提取声纹失败: {e}")
+
+        # 对每个本地 spk，匹配全局已知说话人或分配新 ID
+        spk_remap: dict[int, int] = {}
+        for local_spk, emb in local_embeddings.items():
+            best_id, best_sim = None, self.threshold
+            for gid, centroid in self.centroids.items():
+                sim = 1.0 - cosine(emb, centroid)
+                if sim > best_sim:
+                    best_sim = sim
+                    best_id = gid
+
+            if best_id is not None:
+                # 匹配到已知说话人：更新 centroid
+                self.centroids[best_id] = (
+                    self.centroids[best_id] * 0.7 + emb * 0.3
+                )
+                spk_remap[local_spk] = best_id
+            else:
+                # 新说话人
+                gid = self.next_id
+                self.next_id += 1
+                self.centroids[gid] = emb
+                spk_remap[local_spk] = gid
+
+        # 重映射
+        for seg in segments:
+            old_spk = seg.get("spk")
+            if old_spk is not None and old_spk in spk_remap:
+                seg["spk"] = spk_remap[old_spk]
+
+        return segments
