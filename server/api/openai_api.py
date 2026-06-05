@@ -50,11 +50,11 @@ async def transcribe(
         model = registry.get(with_spk=speaker_diarization)
         gen_kwargs = {
             "batch_size_s": DEFAULT_BATCH_SIZE_S,
+            "batch_size_threshold_s": 0,   # 禁用批量解码（SenseVoice 不支持）
             "language": language or "auto",
             "use_itn": True,
             "merge_vad": True,
             "merge_length_s": 15,
-            "batch_size_threshold_s": 60,
         }
 
         t0 = time.time()

@@ -281,10 +281,10 @@ class TaskManager:
                 pcm_bytes = await convert_to_pcm(task.file_path)
                 gen_kwargs = {
                     "batch_size_s": DEFAULT_BATCH_SIZE_S,
+                    "batch_size_threshold_s": 0,   # 禁用批量解码（SenseVoice 不支持）
                     "use_itn": True,
                     "merge_vad": True,
                     "merge_length_s": 15,
-                    "batch_size_threshold_s": DEFAULT_BATCH_THRESHOLD_S,
                 }
                 if task.language and task.language != "auto":
                     gen_kwargs["language"] = task.language
