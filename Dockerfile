@@ -7,7 +7,9 @@
 #  运行: docker compose up -d
 #  ═══════════════════════════════════════════════════
 
-FROM python:3.10-slim
+# 默认使用阿里云容器镜像加速，海外构建可覆盖: --build-arg BASE_IMAGE=python:3.10-slim
+ARG BASE_IMAGE=registry.cn-hangzhou.aliyuncs.com/docker-library/python:3.10-slim
+FROM ${BASE_IMAGE}
 
 # ── 元信息 ──────────────────────────────────────
 LABEL maintainer="ZiDuNet"

@@ -11,7 +11,6 @@ from fastapi.responses import JSONResponse
 from server.core.inference import run_blocking, _generate_sync
 from server.core.audio import convert_to_pcm, save_temp_upload
 from server.core.postprocess import clean_text, extract_emotion, extract_events
-from server.core.speaker_db import match_speaker
 from server.models.registry import ModelRegistry
 from server.models.config import DEFAULT_BATCH_SIZE_S, MODEL_NAME
 
@@ -23,7 +22,6 @@ router = APIRouter()
 async def transcribe(
     file: UploadFile = File(..., description="音频文件"),
     language: Optional[str] = Form(default=None),
-    response_format: Optional[str] = Form(default="json"),
     speaker_diarization: bool = Form(default=False),
     speaker_group: Optional[str] = Form(default=None),
     emotion: bool = Form(default=False),
@@ -31,7 +29,7 @@ async def transcribe(
     punctuation: bool = Form(default=True),
     hotwords: Optional[str] = Form(default=None),
 ):
-    """OpenAI 兼容音频转写 — 同步返回"""
+    """OpenAI 兼容音频转写 — 始终返回详细 JSON，字段按请求参数条件返回"""
     registry = ModelRegistry.get_instance()
 
     suffix = os.path.splitext(file.filename)[1] if file.filename else ".wav"
@@ -65,44 +63,45 @@ async def transcribe(
         raw_text = raw.get("text", "")
         text = clean_text(raw_text)
 
-        if response_format == "verbose_json":
-            emo = extract_emotion(raw_text) if emotion else None
-            evt = extract_events(raw_text) if events else []
+        # 构建详细响应
+        resp = {
+            "text": text,
+            "language": language or "auto",
+            "duration": round(elapsed, 3),
+            "model": MODEL_NAME,
+        }
 
-            spk_embedding = raw.get("spk_embedding")
-            if spk_embedding is not None and hasattr(spk_embedding, "cpu"):
-                spk_embedding = spk_embedding[0].cpu().numpy().tolist()
-
-            segments = []
-            if "sentence_info" in raw:
-                for seg in raw["sentence_info"]:
-                    s = {
-                        "start": seg.get("start", 0) / 1000.0,
-                        "end": seg.get("end", 0) / 1000.0,
-                        "text": clean_text(seg.get("text", "")),
-                    }
-                    if "spk" in seg:
-                        s["speaker_id"] = seg["spk"]
-                        if speaker_group and spk_embedding:
-                            matched = match_speaker(speaker_group, spk_embedding)
-                            if matched:
-                                s["speaker"] = matched
-                    segments.append(s)
-
-            resp = {
-                "text": text, "segments": segments,
-                "language": language or "auto",
-                "duration": round(elapsed, 3), "model": MODEL_NAME,
-            }
-            if speaker_group:
-                resp["speaker_group"] = speaker_group
+        # 情感（仅在请求时返回）
+        if emotion:
+            emo = extract_emotion(raw_text)
             if emo:
                 resp["emotion"] = emo
+
+        # 事件（仅在请求时返回）
+        if events:
+            evt = extract_events(raw_text)
             if evt:
                 resp["events"] = evt
-            return JSONResponse(resp)
-        else:
-            return JSONResponse({"text": text})
+
+        # 声纹分组
+        if speaker_group:
+            resp["speaker_group"] = speaker_group
+
+        # 分段信息（含时间戳；说话人信息仅在说话人分离时返回）
+        if "sentence_info" in raw:
+            segments = []
+            for seg in raw["sentence_info"]:
+                s = {
+                    "start": seg.get("start", 0) / 1000.0,
+                    "end": seg.get("end", 0) / 1000.0,
+                    "text": clean_text(seg.get("text", "")),
+                }
+                if speaker_diarization and "spk" in seg:
+                    s["speaker_id"] = seg["spk"]
+                segments.append(s)
+            resp["segments"] = segments
+
+        return JSONResponse(resp)
 
     except Exception as e:
         logger.error(f"转写错误: {e}")

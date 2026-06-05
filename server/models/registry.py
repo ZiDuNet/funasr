@@ -96,9 +96,14 @@ class ModelRegistry:
     # ── 核心方法 ────────────────────────────────
 
     def get(self, with_spk: bool = False) -> AutoModel:
-        """获取离线 ASR 模型（配置文件中选定的那个）"""
+        """获取离线 ASR 模型（配置文件中选定的那个）
+
+        with_spk=True 时加载带 cam++ 说话人分离的模型实例，
+        与普通 ASR 模型分开缓存，避免键冲突。
+        """
+        key = "asr_spk" if with_spk else "asr"
         cfg = ASR_CONFIG_WITH_SPK if with_spk else ASR_CONFIG
-        return self._load("asr", cfg)
+        return self._load(key, cfg)
 
     def get_streaming(self) -> AutoModel:
         return self._load("streaming", STREAMING_CONFIG)

@@ -18,6 +18,7 @@ from server.core.audio import convert_to_pcm, save_temp_upload
 from server.models.registry import ModelRegistry
 from server.models.config import (
     MAX_TASKS, TASKS_DIR, AUDIO_DIR, DATA_TTL_DAYS,
+    DEFAULT_BATCH_SIZE_S, DEFAULT_BATCH_THRESHOLD_S,
 )
 
 logger = logging.getLogger(__name__)
@@ -59,7 +60,18 @@ class TranscriptionTask:
             "status": self.status.value,
             "created_at": self.created_at,
             "model": self.model,
+            "params": {
+                "speaker_diarization": self.speaker_diarization,
+                "emotion": self.emotion,
+                "events": self.events,
+                "punctuation": self.punctuation,
+                "language": self.language,
+            },
         }
+        if self.speaker_group:
+            d["params"]["speaker_group"] = self.speaker_group
+        if self.hotwords:
+            d["params"]["hotwords"] = self.hotwords
         if self.url:
             d["url"] = self.url
         if self.result:
@@ -80,9 +92,27 @@ class TranscriptionTask:
             json.dump(self._serialize(), f, ensure_ascii=False, indent=2)
 
     def _serialize(self) -> dict:
-        d = self.to_dict()
-        d["status"] = self.status.value
-        return d
+        return {
+            "task_id": self.task_id,
+            "status": self.status.value,
+            "created_at": self.created_at,
+            "file_path": self.file_path,
+            "audio_saved": self.audio_saved,
+            "url": self.url,
+            "model": self.model,
+            "speaker_diarization": self.speaker_diarization,
+            "speaker_group": self.speaker_group,
+            "emotion": self.emotion,
+            "events": self.events,
+            "punctuation": self.punctuation,
+            "language": self.language,
+            "hotwords": self.hotwords,
+            "result": self.result,
+            "error": self.error,
+            "completed_at": self.completed_at,
+            "duration_seconds": self.duration_seconds,
+            "audio_duration_seconds": self.audio_duration_seconds,
+        }
 
     @classmethod
     def from_file(cls, task_id: str) -> Optional["TranscriptionTask"]:
@@ -96,14 +126,21 @@ class TranscriptionTask:
             status=TaskStatus(data["status"]),
             created_at=data["created_at"],
             file_path=data.get("file_path", ""),
+            audio_saved=data.get("audio_saved", ""),
             url=data.get("url", ""),
             model=data.get("model", "sensevoice"),
             speaker_diarization=data.get("speaker_diarization", False),
             speaker_group=data.get("speaker_group", ""),
+            emotion=data.get("emotion", False),
+            events=data.get("events", False),
+            punctuation=data.get("punctuation", True),
+            language=data.get("language", "auto"),
+            hotwords=data.get("hotwords", ""),
             result=data.get("result"),
             error=data.get("error", ""),
             completed_at=data.get("completed_at", 0.0),
             duration_seconds=data.get("duration_seconds", 0.0),
+            audio_duration_seconds=data.get("audio_duration_seconds", 0.0),
         )
 
 
@@ -132,12 +169,16 @@ class TaskManager:
             task_id = fname.replace(".json", "")
             try:
                 task = TranscriptionTask.from_file(task_id)
-                if task and task.status in (TaskStatus.queued, TaskStatus.processing, TaskStatus.downloading):
+                if task is None:
+                    continue
+                if task.status in (TaskStatus.QUEUED, TaskStatus.PROCESSING, TaskStatus.DOWNLOADING):
                     task.status = TaskStatus.FAILED
                     task.error = "服务重启，任务中断"
                     task.completed_at = time.time()
                     task.to_file()
                     logger.warning(f"恢复任务 {task_id}: 已标记为失败（服务重启）")
+                # 加入内存缓存
+                self.tasks[task_id] = task
             except Exception as e:
                 logger.warning(f"恢复任务失败 {task_id}: {e}")
 
@@ -160,8 +201,9 @@ class TaskManager:
         if len(self.tasks) >= MAX_TASKS:
             raise RuntimeError(f"任务数量已达上限 ({MAX_TASKS})")
 
-        # 持久化音频文件
-        audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4().hex[:12]}.pcm")
+        # 持久化音频文件（保留原始格式，转码在 worker 中做）
+        ext = os.path.splitext(file_path)[1] or ".wav"
+        audio_path = os.path.join(AUDIO_DIR, f"{uuid.uuid4().hex[:12]}{ext}")
         shutil.copy(file_path, audio_path)
 
         task = TranscriptionTask(
@@ -206,8 +248,8 @@ class TaskManager:
             suffix = os.path.splitext(task.url.split("?")[0])[-1] or ".wav"
             path = await save_temp_upload(content, suffix)
 
-            # 持久化音频
-            audio_path = os.path.join(AUDIO_DIR, f"{task.task_id}.pcm")
+            # 持久化音频（保留原始格式）
+            audio_path = os.path.join(AUDIO_DIR, f"{task.task_id}{suffix}")
             shutil.copy(path, audio_path)
             task.audio_saved = audio_path
             task.file_path = path
@@ -237,15 +279,23 @@ class TaskManager:
             try:
                 # ffmpeg 转 PCM
                 pcm_bytes = await convert_to_pcm(task.file_path)
-                gen_kwargs = {"batch_size_s": 300}
+                gen_kwargs = {
+                    "batch_size_s": DEFAULT_BATCH_SIZE_S,
+                    "use_itn": True,
+                    "merge_vad": True,
+                    "merge_length_s": 15,
+                    "batch_size_threshold_s": DEFAULT_BATCH_THRESHOLD_S,
+                }
                 if task.language and task.language != "auto":
                     gen_kwargs["language"] = task.language
+                if task.hotwords:
+                    gen_kwargs["hotword"] = task.hotwords
+                if task.speaker_diarization:
+                    gen_kwargs["sentence_timestamp"] = True
+                    gen_kwargs["return_spk_res"] = True
 
                 registry = ModelRegistry.get_instance()
                 model = registry.get(with_spk=task.speaker_diarization)
-                gen_kwargs["merge_vad"] = True
-                gen_kwargs["merge_length_s"] = 15
-                gen_kwargs["batch_size_threshold_s"] = 60
                 result_list = await run_blocking(
                     _generate_sync, model, pcm_bytes,
                     sem=registry.sem_asr_offline,
@@ -254,6 +304,9 @@ class TaskManager:
 
                 if result_list:
                     task.result = _format_result(result_list[0], task)
+                    # 声纹匹配：用 speaker_group 中的注册声纹替换 speaker_id
+                    if task.speaker_group and task.speaker_diarization:
+                        await _match_voiceprints(task.result, pcm_bytes, task.speaker_group)
                 else:
                     task.result = {"text": ""}
 
@@ -278,8 +331,6 @@ class TaskManager:
                 continue
             cutoff = time.time() - DATA_TTL_DAYS * 86400
             cleaned = 0
-
-            # 1. 清理过期任务 JSON + 关联音频
             for fname in os.listdir(TASKS_DIR):
                 if not fname.endswith(".json"):
                     continue
@@ -291,24 +342,12 @@ class TaskManager:
                         cleaned += 1
                 except Exception:
                     pass
-
-            # 2. 清理孤立音频文件（data/audio/）
-            if os.path.isdir(AUDIO_DIR):
-                for fname in os.listdir(AUDIO_DIR):
-                    fpath = os.path.join(AUDIO_DIR, fname)
-                    if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
-                        os.remove(fpath)
-                        cleaned += 1
-
-            # 3. 清理临时上传文件（/tmp/funasr/，进程崩溃残留）
-            tmp_dir = "/tmp/funasr"
-            if os.path.isdir(tmp_dir):
-                for fname in os.listdir(tmp_dir):
-                    fpath = os.path.join(tmp_dir, fname)
-                    if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
-                        os.remove(fpath)
-                        cleaned += 1
-
+            # 清理孤立音频文件
+            for fname in os.listdir(AUDIO_DIR):
+                fpath = os.path.join(AUDIO_DIR, fname)
+                if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                    os.remove(fpath)
+                    cleaned += 1
             if cleaned:
                 logger.info(f"自动清理: 删除 {cleaned} 个过期文件（{DATA_TTL_DAYS} 天前）")
 
@@ -355,23 +394,68 @@ class TaskManager:
         return False
 
 
+async def _match_voiceprints(result: dict, pcm_bytes: bytes, group_id: str):
+    """用声纹数据库匹配 segments 中的 speaker_id，替换为注册名称"""
+    from server.core.speaker_db import match_speaker, extract_embedding
+
+    segments = result.get("segments", [])
+    if not segments:
+        return
+
+    registry = ModelRegistry.get_instance()
+    sv_model = registry.get_aux("sv")
+
+    # 按 speaker_id 分组，每组只提取一次声纹（同一说话人 embedding 相同）
+    seen_speakers: dict[int, str | None] = {}
+    bytes_per_ms = 32000 / 1000  # 16kHz, 16bit, mono
+
+    for seg in segments:
+        spk_id = seg.get("speaker_id")
+        if spk_id is None:
+            continue
+
+        if spk_id in seen_speakers:
+            if seen_speakers[spk_id]:
+                seg["speaker"] = seen_speakers[spk_id]
+            continue
+
+        # 截取该 segment 对应的 PCM 音频片段
+        start_byte = int(seg["start"] * bytes_per_ms)
+        end_byte = int(seg["end"] * bytes_per_ms)
+        seg_audio = pcm_bytes[start_byte:end_byte]
+
+        if len(seg_audio) < 1600:  # 音频太短（<100ms），跳过
+            seen_speakers[spk_id] = None
+            continue
+
+        try:
+            embedding = extract_embedding(sv_model, seg_audio)
+            matched = match_speaker(group_id, embedding) if embedding else None
+            seen_speakers[spk_id] = matched
+            if matched:
+                seg["speaker"] = matched
+        except Exception as e:
+            logger.warning(f"声纹匹配失败 speaker_id={spk_id}: {e}")
+            seen_speakers[spk_id] = None
+
+
 def _format_result(raw: dict, task: TranscriptionTask) -> dict:
-    """格式化推理结果（包含声纹匹配）"""
+    """格式化推理结果，字段按请求参数条件返回"""
     from server.core.postprocess import clean_text, extract_emotion, extract_events
-    from server.core.speaker_db import match_speaker
 
     text = raw.get("text", "")
-    emotion = extract_emotion(text) if task.emotion else None
-    events = extract_events(text) if task.events else []
     clean = clean_text(text)
 
     result = {"text": clean}
-    if emotion:
-        result["emotion"] = emotion
-    if events:
-        result["events"] = events
 
-    if "sentence_info" in raw:
+    # 情感/事件仅在请求时返回
+    if task.emotion:
+        result["emotion"] = extract_emotion(text)
+    if task.events:
+        result["events"] = extract_events(text)
+
+    # segments 仅在说话人分离请求时返回
+    if task.speaker_diarization and "sentence_info" in raw:
         segments = []
         for seg in raw["sentence_info"]:
             s = {
@@ -381,11 +465,6 @@ def _format_result(raw: dict, task: TranscriptionTask) -> dict:
             }
             if "spk" in seg:
                 s["speaker_id"] = seg["spk"]
-                # 如果有 group，尝试匹配声纹
-                if task.speaker_group:
-                    matched = match_speaker(task.speaker_group, seg.get("spk_embedding"))
-                    if matched:
-                        s["speaker"] = matched
             segments.append(s)
         result["segments"] = segments
 

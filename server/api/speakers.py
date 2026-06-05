@@ -35,7 +35,7 @@ async def register(
     返回的 group_id 需要保存好，后续转写时带入。
     """
     registry = ModelRegistry.get_instance()
-    sv_model = registry.get("sv")
+    sv_model = registry.get_aux("sv")
 
     # 保存音频
     suffix = os.path.splitext(audio.filename)[1] if audio.filename else ".wav"

@@ -28,7 +28,8 @@ def register_ws_endpoint(app):
             "audio_fs": 16000,
             "wav_format": "pcm",
             "itn": True,
-            "speaker_diarization": False,    # ← 新增
+            "speaker_diarization": False,
+            "vad_pre_idx": 0,                # VAD 预处理音频累计时长
             "status_asr": {"batch_size_s": 300},
             "status_asr_online": {"cache": {}, "is_final": False},
             "status_vad": {"cache": {}, "is_final": False},
@@ -143,7 +144,7 @@ def register_ws_endpoint(app):
                                         # 离线 ASR（支持 speaker_diarization）
                                         rec = await infer_asr_offline_ws(
                                             audio_in, state["status_asr"],
-                                            speaker_diarization=state.get("speaker_diarization", False),
+                                            with_spk=state.get("speaker_diarization", False),
                                         )
                                         text = rec.get("text", "")
 

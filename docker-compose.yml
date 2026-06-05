@@ -18,19 +18,20 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      # 海外网络可覆盖基础镜像: args: [{BASE_IMAGE: python:3.10-slim}]
     image: funasr-all-in-one:latest
     container_name: funasr
 
     # ── 端口映射 ─────────────────────────────
-    # 修改 .env 中 PORT 可改宿主机端口
+    # 修改 .env 中 FUNASR_PORT 可改宿主机端口
     ports:
-      - "${PORT:-17767}:17767"
+      - "${FUNASR_PORT:-17767}:17767"
 
     # ── 环境变量 ─────────────────────────────
     # 所有可配参数见 .env.example
     environment:
       # 核心
-      - FUNASR_DEVICE=${DEVICE:-cpu}         # cpu / cuda
+      - FUNASR_DEVICE=${FUNASR_DEVICE:-cpu}         # cpu / cuda
       - MODEL=${MODEL:-fun-asr-nano}         # 离线模型（见 .env.example）
       - FUNASR_PORT=17767
       # 功能开关
@@ -46,7 +47,7 @@ services:
       # - FUNASR_NCPU=4
       # - FUNASR_WORKER_THREADS=8
       # - FUNASR_CONCURRENT_ASR_OFFLINE=2
-      # - FUNASR_DATA_TTL_DAYS=7
+      # - FUNASR_DATA_TTL_DAYS=${FUNASR_DATA_TTL_DAYS:-7}
 
     # ── 持久化挂载 ───────────────────────────
     volumes:
@@ -67,7 +68,7 @@ services:
 
     # ═══════════════════════════════════════════
     #  GPU 模式（需 NVIDIA Container Toolkit）
-    #  1. .env 中设置 DEVICE=cuda
+    #  1. .env 中设置 FUNASR_DEVICE=cuda
     #  2. 取消下面 deploy 注释
     #  3. docker compose up -d
     # ═══════════════════════════════════════════

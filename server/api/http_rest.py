@@ -51,26 +51,40 @@ async def recognition(
         )
 
         if not result_list or not result_list[0].get("text"):
-            return {"text": "", "sentences": [], "code": 0}
+            return {"text": "", "code": 0}
 
         raw = result_list[0]
         raw_text = raw.get("text", "")
         text = clean_text(raw_text)
-        emo = extract_emotion(raw_text) if emotion else None
-        evt = extract_events(raw_text) if events else []
 
-        sentences = []
-        for seg in raw.get("sentence_info", []):
-            s = {"text": clean_text(seg.get("text", "")),
-                 "start": seg.get("start", 0), "end": seg.get("end", 0)}
-            if "spk" in seg:
-                s["speaker_id"] = seg["spk"]
-            sentences.append(s)
+        resp = {"text": text, "code": 0}
 
-        resp = {"text": text, "sentences": sentences, "code": 0}
-        if emo: resp["emotion"] = emo
-        if evt: resp["events"] = evt
-        if speaker_group: resp["speaker_group"] = speaker_group
+        # 情感（仅在请求时返回）
+        if emotion:
+            emo = extract_emotion(raw_text)
+            if emo:
+                resp["emotion"] = emo
+
+        # 事件（仅在请求时返回）
+        if events:
+            evt = extract_events(raw_text)
+            if evt:
+                resp["events"] = evt
+
+        if speaker_group:
+            resp["speaker_group"] = speaker_group
+
+        # 分段信息（含时间戳；说话人信息仅在说话人分离时返回）
+        if "sentence_info" in raw:
+            sentences = []
+            for seg in raw["sentence_info"]:
+                s = {"text": clean_text(seg.get("text", "")),
+                     "start": seg.get("start", 0), "end": seg.get("end", 0)}
+                if speaker_diarization and "spk" in seg:
+                    s["speaker_id"] = seg["spk"]
+                sentences.append(s)
+            resp["sentences"] = sentences
+
         return resp
 
     except Exception as e:

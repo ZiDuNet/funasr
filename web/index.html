@@ -46,7 +46,6 @@
     <h2 style="margin-top:0">识别参数</h2>
     <div class="params">
       <div class="param"><label>语言</label><select id="language"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="ko">韩文</option><option value="yue">粤语</option></select></div>
-      <div class="param"><label>输出格式</label><select id="format"><option value="verbose_json">详细（含分段+时间戳）</option><option value="json">简洁（仅文本）</option></select></div>
       <div class="param"><label>说话人分组</label><input type="text" id="speakerGroup" placeholder="留空则不匹配声纹"></div>
     </div>
     <div class="param" style="margin-top:14px">
@@ -135,7 +134,6 @@ function getParams() {
   const hw = document.getElementById('hotwords').value.trim();
   return {
     language: document.getElementById('language').value,
-    response_format: document.getElementById('format').value,
     speaker_diarization: document.getElementById('spk').checked,
     speaker_group: document.getElementById('speakerGroup').value.trim() || undefined,
     emotion: document.getElementById('emotion').checked,
