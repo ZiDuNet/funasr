@@ -34,15 +34,17 @@
 
 ### 模型详情
 
-| `MODEL=` | 模型 | 能力 | 语言 | 大小 | GPU |
-|----------|------|------|------|------|-----|
-| `sensevoice` | SenseVoiceSmall | ASR + 情感 + 事件 | 中英日韩粤 | 234M | 可选 |
-| `paraformer` | Paraformer-zh | 中文生产级 ASR + 字级时间戳 | 中英 | 220M | 可选 |
-| **`fun-asr-nano`** ← 默认 | Fun-ASR-Nano | LLM-based ASR | 31 语言 | 800M | 可选 |
-| `qwen3-asr` | Qwen3-ASR-1.7B | 高精度 ASR | 52 语言 | 1.7B | ⚠️ 必须 |
-| `glm-asr-nano` | GLM-ASR-Nano-2512 | 高精度 ASR（超 Whisper V3） | 17 语言 | 1.5B | ⚠️ 必须 |
-| `whisper-large-v3` | Whisper-large-v3 | 识别 + 翻译 | 多语言 | 1550M | 可选 |
-| `whisper-large-v3-turbo` | Whisper-large-v3-turbo | 识别 + 翻译（加速版） | 多语言 | 809M | 可选 |
+| `MODEL=` | 模型 | ASR | 情感/事件 | 语言 | 大小 | GPU |
+|----------|------|:---:|:---:|------|------|-----|
+| `sensevoice` | SenseVoiceSmall | ✅ | ✅ | 中英日韩粤 | 234M | 可选 |
+| `paraformer` | Paraformer-zh | ✅ | ❌ | 中英 | 220M | 可选 |
+| **`fun-asr-nano`** ← 默认 | Fun-ASR-Nano | ✅ | ❌ | 31 语言 | 800M | 可选 |
+| `qwen3-asr` | Qwen3-ASR-1.7B | ✅ | ❌ | 52 语言 | 1.7B | ⚠️ 必须 |
+| `glm-asr-nano` | GLM-ASR-Nano-2512 | ✅ | ❌ | 17 语言 | 1.5B | ⚠️ 必须 |
+| `whisper-large-v3` | Whisper-large-v3 | ✅ | ❌ | 多语言 | 1550M | 可选 |
+| `whisper-large-v3-turbo` | Whisper-large-v3-turbo | ✅ | ❌ | 多语言 | 809M | 可选 |
+
+> 所有模型均支持**说话人分离**（通过 cam++ `spk_model`，Qwen3-ASR 需额外配置 forced_aligner）。**情感识别、事件检测**仅 SenseVoice 支持（模型原生输出标签）。
 
 > 首次使用自动从魔搭下载，后续秒启动。`⚠️ 必须 GPU` 的模型需要 bf16 精度，仅 Ampere+ GPU 支持。
 
@@ -56,7 +58,7 @@
 | cam++ | 说话人分离 / 声纹 | 7.2M |
 | emotion2vec+large | 独立情感识别 | 300M |
 
-> ⚠️ 说话人分离、情感识别、事件检测仅 **SenseVoice / Paraformer** 支持。Qwen3 / GLM / Whisper 不支持这些附加能力。
+> ⚠️ **情感识别、事件检测**仅 **SenseVoice** 支持（模型输出自带 `<|HAPPY|>`/`<|BGM|>` 等标签）。**说话人分离**所有模型均支持（cam++ 独立于 ASR 模型，Qwen3-ASR 需额外配置 forced_aligner）。
 
 ---
 
@@ -254,7 +256,7 @@ api/
 | **局域网麦克风** | 浏览器安全策略限制，非 HTTPS 页面禁止麦克风。本地用 `localhost`，局域网需 Chrome flag 或 HTTPS |
 | **emotion2vec 警告** | `Warning, miss key in ckpt` 是 FunASR 正常日志，不影响功能 |
 | **大模型 GPU** | Qwen3-ASR / GLM-ASR 需要 bf16 精度，仅 NVIDIA Ampere+ (A100/3090/4090 等) 支持 |
-| **模型兼容性** | 说话人分离/情感/事件仅 SenseVoice 和 Paraformer 支持，其他模型这些参数无效 |
+| **模型兼容性** | 情感/事件仅 SenseVoice 支持；说话人分离所有模型均支持（Qwen3-ASR 需 forced_aligner） |
 
 ---
 
