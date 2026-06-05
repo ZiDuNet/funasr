@@ -102,7 +102,7 @@ async def transcribe(
                 s = {
                     "start": seg.get("start", 0),       # 毫秒，匹配后再转秒
                     "end": seg.get("end", 0),
-                    "text": clean_text(seg.get("text", "")),
+                    "text": clean_text(seg.get("text") or seg.get("sentence", "")),
                 }
                 if speaker_diarization and "spk" in seg:
                     s["speaker_id"] = seg["spk"]

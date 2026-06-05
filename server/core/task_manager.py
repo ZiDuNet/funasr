@@ -420,7 +420,7 @@ def _format_result(raw: dict, task: TranscriptionTask) -> dict:
         segments = []
         for seg in raw["sentence_info"]:
             s = {
-                "text": clean_text(seg.get("text", "")),
+                "text": clean_text(seg.get("text") or seg.get("sentence", "")),
                 "start": seg.get("start", 0),
                 "end": seg.get("end", 0),
             }

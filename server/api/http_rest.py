@@ -80,7 +80,7 @@ async def recognition(
         if "sentence_info" in raw:
             sentences = []
             for seg in raw["sentence_info"]:
-                s = {"text": clean_text(seg.get("text", "")),
+                s = {"text": clean_text(seg.get("text") or seg.get("sentence", "")),
                      "start": seg.get("start", 0), "end": seg.get("end", 0)}
                 if speaker_diarization and "spk" in seg:
                     s["speaker_id"] = seg["spk"]

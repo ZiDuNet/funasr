@@ -59,10 +59,12 @@ def clean_text(text: str) -> str:
 
 
 def extract_emotion(text: str) -> str | None:
-    """从 SenseVoice 输出中提取情感标签，返回原始标签名（如 HAPPY、SAD）"""
-    for tag, emoji in EMO_DICT.items():
-        if tag in text and emoji:  # emoji 非空表示有效情感（排除 NEUTRAL）
-            return tag.strip("<|").strip("|>")
+    """从 SenseVoice 输出中提取情感标签，返回原始标签名（如 HAPPY、SAD、NEUTRAL）"""
+    for tag in EMO_DICT:
+        if tag in text:
+            label = tag.strip("<|").strip("|>")
+            if label:  # 排除空标签
+                return label
     return None
 
 
