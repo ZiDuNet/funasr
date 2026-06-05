@@ -50,7 +50,7 @@ ENV MODELSCOPE_CACHE=/root/.cache/modelscope
 # ── 环境变量（docker-compose 中可覆盖）────────────
 ENV FUNASR_DEVICE=cpu
 ENV FUNASR_PORT=17767
-ENV MODEL=sensevoice
+ENV MODEL=fun-asr-nano
 ENV PRELOAD_ALL=true
 ENV ENABLE_STREAMING=true
 ENV ENABLE_MCP=true

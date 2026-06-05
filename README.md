@@ -36,9 +36,9 @@
 
 | `MODEL=` | 模型 | 自带能力 | 语言 | 大小 | GPU |
 |----------|------|------|------|------|-----|
-| **`sensevoice`** ← 默认 | SenseVoiceSmall | ASR + 标点 + 情感 + 事件 | 中英日韩粤 | 234M | 可选 |
+| **`fun-asr-nano`** ← 默认 | Fun-ASR-Nano | ASR + 标点 | 31 语言 | 800M | 可选 |
+| `sensevoice` | SenseVoiceSmall | ASR + 标点 + 情感 + 事件 | 中英日韩粤 | 234M | 可选 |
 | `paraformer` | Paraformer-zh | ASR | 中英 | 220M | 可选 |
-| `fun-asr-nano` | Fun-ASR-Nano | ASR + 标点 | 31 语言 | 800M | 可选 |
 | `qwen3-asr` | Qwen3-ASR-1.7B | ASR | 52 语言 | 1.7B | ⚠️ 必须 |
 | `glm-asr-nano` | GLM-ASR-Nano-2512 | ASR | 17 语言 | 1.5B | ⚠️ 必须 |
 | `whisper-large-v3` | Whisper-large-v3 | ASR + 翻译 | 多语言 | 1550M | 可选 |
@@ -167,7 +167,7 @@ docker compose -f docker-compose.pull.yml up -d
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
 | `FUNASR_DEVICE` | `cpu` | `cpu` / `cuda`（同一镜像，无需重建） |
-| `MODEL` | `sensevoice` | ASR 模型选择（见上表），CPU 推荐 sensevoice |
+| `MODEL` | `fun-asr-nano` | ASR 模型选择（见上表） |
 | `PRELOAD_ALL` | `true` | 启动预加载所有模型 |
 | `ENABLE_STREAMING` | `true` | WebSocket 流式 |
 | `ENABLE_MCP` | `true` | MCP 协议 |
