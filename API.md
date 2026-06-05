@@ -95,8 +95,9 @@ curl -X POST http://localhost:17767/v1/audio/transcriptions \
 ```python
 from openai import OpenAI
 client = OpenAI(base_url="http://localhost:17767/v1", api_key="x")
+# model 参数仅为 OpenAI SDK 兼容（实际模型由 .env 中 MODEL 决定）
 result = client.audio.transcriptions.create(
-    model="sensevoice",
+    model="funasr",
     file=open("meeting.wav", "rb"),
     language="zh",
     extra_body={"speaker_diarization": True, "emotion": True},

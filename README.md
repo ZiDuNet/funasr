@@ -51,10 +51,23 @@ curl http://localhost:17767/health
 ## GPU 模式
 
 ```bash
-# .env 中修改 DEVICE=cuda
-# docker-compose.yml 取消 deploy 部分注释
-docker compose up -d
+# .env 中修改两处:
+#   DEVICE=cuda                          ← 选 GPU
+#   TORCH_INDEX=https://download.pytorch.org/whl/cu118  ← GPU 版 PyTorch
+#
+# docker-compose.yml 中取消 deploy 部分的注释
+#   deploy:
+#     resources:
+#       reservations:
+#         devices:
+#           - driver: nvidia
+#             count: all
+#             capabilities: [gpu]
+
+docker compose down && docker compose up --build -d
 ```
+
+> 构建时自动选 PyTorch 版本：CPU ~200MB / GPU ~2GB，无需手动改 Dockerfile。
 
 ## 配置
 
