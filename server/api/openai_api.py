@@ -79,17 +79,13 @@ async def transcribe(
             "model": MODEL_NAME,
         }
 
-        # 情感（仅在请求时返回）
+        # 情感（仅在请求时返回，始终有值或 null）
         if emotion:
-            emo = extract_emotion(raw_text)
-            if emo:
-                resp["emotion"] = emo
+            resp["emotion"] = extract_emotion(raw_text)
 
-        # 事件（仅在请求时返回）
+        # 事件（仅在请求时返回，始终有值或空数组）
         if events:
-            evt = extract_events(raw_text)
-            if evt:
-                resp["events"] = evt
+            resp["events"] = extract_events(raw_text)
 
         # 声纹分组
         if speaker_group:
