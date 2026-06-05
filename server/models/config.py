@@ -79,7 +79,6 @@ _PRESETS = {
             "model": "FunAudioLLM/Fun-ASR-Nano-2512",
             "trust_remote_code": True,
             "remote_code": "./model.py",
-            "hub": "hf",
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
         },
