@@ -7,12 +7,12 @@
 | 能力 | 接口 | 说明 |
 |------|------|------|
 | 🔌 OpenAI 兼容 API | `POST /v1/audio/transcriptions` | 可直接用 OpenAI SDK 调用 |
-| 🔄 WebSocket 流式 | `ws://host:8000/ws` | 实时麦克风识别（offline/online/2pass） |
+| 🔄 WebSocket 流式 | `ws://host:17767/ws` | 实时麦克风识别（offline/online/2pass） |
 | 📡 HTTP REST | `POST /recognition` | 简单文件上传转写 |
 | 🤖 MCP 协议 | `POST /mcp` | Claude/Cursor 等 AI 工具接入 |
 | 👥 声纹管理 | `POST /api/speakers/register` | 多租户声纹注册与匹配 |
 | 📦 异步任务 | `POST /api/tasks/submit` | 长文件/URL 异步转写 |
-| 🌐 Web UI | `http://host:8000` | 浏览器管理界面 |
+| 🌐 Web UI | `http://host:17767` | 浏览器管理界面 |
 
 ## 支持的模型
 
@@ -42,7 +42,7 @@ docker compose up --build -d
 docker logs -f funasr
 
 # 4. 验证
-curl http://localhost:8000/health
+curl http://localhost:17767/health
 ```
 
 ## GPU 模式
@@ -60,11 +60,11 @@ docker compose up -d
 
 ```bash
 # 基本转写
-curl http://localhost:8000/v1/audio/transcriptions \
+curl http://localhost:17767/v1/audio/transcriptions \
   -F file=@audio.wav -F model=sensevoice
 
 # 带说话人分离
-curl http://localhost:8000/v1/audio/transcriptions \
+curl http://localhost:17767/v1/audio/transcriptions \
   -F file=@meeting.wav \
   -F model=sensevoice \
   -F speaker_diarization=true \
@@ -77,7 +77,7 @@ curl http://localhost:8000/v1/audio/transcriptions \
 
 ```python
 from openai import OpenAI
-client = OpenAI(base_url="http://localhost:8000/v1", api_key="not-needed")
+client = OpenAI(base_url="http://localhost:17767/v1", api_key="not-needed")
 result = client.audio.transcriptions.create(
     model="sensevoice", file=open("meeting.wav", "rb"),
     extra_body={"speaker_diarization": True, "emotion": True}
@@ -89,27 +89,27 @@ print(result.text)
 
 ```bash
 # 注册说话人
-curl -X POST http://localhost:8000/api/speakers/register \
+curl -X POST http://localhost:17767/api/speakers/register \
   -F audio=@zhangsan.wav -F name=张三
 # → {"group_id": "grp_abc123", "name": "张三"}
 
 # 查看已注册
-curl http://localhost:8000/api/speakers
+curl http://localhost:17767/api/speakers
 ```
 
 ### 异步任务
 
 ```bash
 # 提交长文件
-curl -X POST http://localhost:8000/api/tasks/submit \
+curl -X POST http://localhost:17767/api/tasks/submit \
   -F file=@long_meeting.mp3
 
 # 提交 URL
-curl -X POST http://localhost:8000/api/tasks/submit \
+curl -X POST http://localhost:17767/api/tasks/submit \
   -F url=https://example.com/audio.mp3
 
 # 查询结果
-curl http://localhost:8000/api/tasks/{task_id}
+curl http://localhost:17767/api/tasks/{task_id}
 ```
 
 ### WebSocket
@@ -117,7 +117,7 @@ curl http://localhost:8000/api/tasks/{task_id}
 ```python
 # 用 Python 客户端
 python FunASR/runtime/python/websocket/funasr_wss_client.py \
-  --host localhost --port 8000 --mode 2pass --wav_path test.wav
+  --host localhost --port 17767 --mode 2pass --wav_path test.wav
 ```
 
 ### MCP
@@ -129,7 +129,7 @@ python FunASR/runtime/python/websocket/funasr_wss_client.py \
   "mcpServers": {
     "funasr": {
       "type": "http",
-      "url": "http://localhost:8000/mcp"
+      "url": "http://localhost:17767/mcp"
     }
   }
 }
@@ -140,7 +140,7 @@ python FunASR/runtime/python/websocket/funasr_wss_client.py \
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
 | `DEVICE` | `cpu` | `cpu` 或 `cuda` |
-| `PORT` | `8000` | 服务端口 |
+| `PORT` | `17767` | 服务端口 |
 | `DATA_TTL_DAYS` | `7` | 任务结果保留天数（0=不清理） |
 | `WORKER_THREADS` | `8` | 推理线程数 |
 | `CONCURRENT_ASR_OFFLINE` | `2` | 离线 ASR 并发上限 |
@@ -182,7 +182,7 @@ api/
 ## 架构
 
 ```
-单容器 (端口 8000)
+单容器 (端口 17767)
 ├── OpenAI API (/v1/...)          ← 同步转写
 ├── 异步任务 (/api/tasks)          ← 长文件/URL
 ├── WebSocket (/ws)               ← 实时流式

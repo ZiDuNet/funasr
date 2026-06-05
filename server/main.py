@@ -15,7 +15,7 @@ logger = logging.getLogger(__name__)
 def main():
     import os
     host = os.environ.get("FUNASR_HOST", "0.0.0.0")
-    port = int(os.environ.get("FUNASR_PORT", "8000"))
+    port = int(os.environ.get("FUNASR_PORT", "17767"))
 
     logger.info(f"启动 FunASR All-in-One @ http://{host}:{port}")
     logger.info(f"  OpenAI API:  http://{host}:{port}/v1/audio/transcriptions")

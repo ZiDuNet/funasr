@@ -1,41 +1,58 @@
-# ── FunASR All-in-One ──────────────────────────
-# 支持: OpenAI API / HTTP REST / WebSocket 流式 / MCP / Web UI
-# ────────────────────────────────────────────────
+# ═══════════════════════════════════════════════════
+#  FunASR All-in-One Dockerfile
+#  ──────────────────────────────────────────────
+#  包含: OpenAI API / HTTP REST / WebSocket / MCP / Web UI
+#  ──────────────────────────────────────────────
+#  构建: docker compose build
+#  运行: docker compose up -d
+#  ═══════════════════════════════════════════════════
 
 FROM python:3.10-slim
 
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    FUNASR_DEVICE=cpu \
-    FUNASR_PORT=8000
+# ── 元信息 ──────────────────────────────────────
+LABEL maintainer="ZiDuNet"
+LABEL description="FunASR 统一语音识别服务 - OpenAI API + WebSocket + MCP + Web UI"
 
-WORKDIR /app
-
-# 系统依赖：ffmpeg（音频转码）、git（funasr 下载模型）
+# ── 系统依赖 ────────────────────────────────────
+# ffmpeg:  音频格式转码（mp3/mp4→PCM）
+# git:     funasr 从魔搭下载模型时需要
+# libsndfile1: 音频文件读写
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ffmpeg \
-        git \
-        libsndfile1 \
+        ffmpeg git libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Python 依赖
+# ── Python 依赖 ─────────────────────────────────
+WORKDIR /app
 COPY requirements.txt .
 RUN pip install --upgrade pip \
     && pip install --no-cache-dir -r requirements.txt
 
-# 应用代码
+# ── 应用代码 ────────────────────────────────────
 COPY server/ ./server/
-COPY web/ ./web/
+COPY web/    ./web/
 
-# 模型目录（由 docker-compose 挂载）
-RUN mkdir -p /app/models
-ENV MODELSCOPE_CACHE=/app/models
+# ── 数据目录 ────────────────────────────────────
+# /root/.cache/modelscope : 模型缓存（挂载持久化）
+# /app/data               : 任务结果 + 声纹库（挂载持久化）
+RUN mkdir -p /app/data /root/.cache/modelscope
+ENV MODELSCOPE_CACHE=/root/.cache/modelscope
 
-EXPOSE 8000
+# ── 环境变量（docker-compose 中可覆盖）────────────
+ENV FUNASR_DEVICE=cpu
+ENV FUNASR_PORT=17767
+ENV MODEL=sensevoice
+ENV PRELOAD_ALL=true
+ENV ENABLE_STREAMING=true
+ENV ENABLE_MCP=true
 
+# ── 端口 ────────────────────────────────────────
+EXPOSE 17767
+
+# ── 健康检查 ────────────────────────────────────
+# 容器启动后 120s 开始检查，每 30s 一次，失败 3 次重启
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:17767/health', timeout=3)" || exit 1
 
-CMD ["python", "-m", "server.main"]
+# ── 启动 ────────────────────────────────────────
+CMD ["sh", "-c", "python -m server.main"]

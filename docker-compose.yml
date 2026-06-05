@@ -1,12 +1,17 @@
-# ── FunASR All-in-One ──────────────────────────
-# 单一镜像，CPU/GPU 通过 .env 中的 DEVICE 切换
+# ═══════════════════════════════════════════════════
+#  FunASR All-in-One Docker Compose
+#  ──────────────────────────────────────────────
+#  单镜像，CPU/GPU 通过 .env 切换
+#  ═══════════════════════════════════════════════════
+#  使用:
+#   1. cp .env.example .env     ← 复制配置模板
+#   2. 修改 .env 中的参数
+#   3. docker compose build     ← 构建镜像
+#   4. docker compose up -d     ← 后台启动
 #
-# 使用方式:
-#   cp .env.example .env
-#   # CPU: .env 设为 DEVICE=cpu
-#   # GPU: .env 设为 DEVICE=cuda，取消 deploy 注释
-#   docker compose up --build -d
-# ───────────────────────────────────────────────
+#  日志:  docker compose logs -f
+#  停止:  docker compose down
+#  ═══════════════════════════════════════════════════
 
 services:
   funasr:
@@ -15,34 +20,53 @@ services:
       dockerfile: Dockerfile
     image: funasr-all-in-one:latest
     container_name: funasr
-    ports:
-      - "${PORT:-8000}:8000"
-    environment:
-      - FUNASR_DEVICE=${DEVICE:-cpu}
-      - MODEL=${MODEL:-sensevoice}
-      - PRELOAD_ALL=${PRELOAD_ALL:-true}
-      - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
-      - ENABLE_MCP=${ENABLE_MCP:-true}
-      - FUNASR_PORT=8000
-      - FUNASR_NCPU=${NCPU:-4}
-      - FUNASR_WORKER_THREADS=${WORKER_THREADS:-8}
-      - FUNASR_DATA_TTL_DAYS=${DATA_TTL_DAYS:-7}
-      - MODELSCOPE_CACHE=/root/.cache/modelscope
 
-      # 可选：覆盖并发控制
-      # - FUNASR_CONCURRENT_VAD=4
-      # - FUNASR_CONCURRENT_ASR_ONLINE=4
+    # ── 端口映射 ─────────────────────────────
+    # 修改 .env 中 PORT 可改宿主机端口
+    ports:
+      - "${PORT:-17767}:17767"
+
+    # ── 环境变量 ─────────────────────────────
+    # 所有可配参数见 .env.example
+    environment:
+      # 核心
+      - FUNASR_DEVICE=${DEVICE:-cpu}         # cpu / cuda
+      - MODEL=${MODEL:-sensevoice}           # 离线模型: sensevoice / paraformer / fun-asr-nano
+      - FUNASR_PORT=17767
+      # 功能开关
+      - PRELOAD_ALL=${PRELOAD_ALL:-true}         # 启动时预加载模型
+      - ENABLE_STREAMING=${ENABLE_STREAMING:-true} # 启用 WebSocket
+      - ENABLE_MCP=${ENABLE_MCP:-true}           # 启用 MCP
+      # 模型缓存
+      - MODELSCOPE_CACHE=/root/.cache/modelscope
+      - FUNASR_DATA_DIR=/app/data
+      # 并发（可选）
+      # - FUNASR_NCPU=4
+      # - FUNASR_WORKER_THREADS=8
       # - FUNASR_CONCURRENT_ASR_OFFLINE=2
-      # - FUNASR_CONCURRENT_PUNC=1
-      # - FUNASR_CONCURRENT_SV=1
-      # - FUNASR_CONCURRENT_EMOTION=1
+      # - FUNASR_DATA_TTL_DAYS=7
+
+    # ── 持久化挂载 ───────────────────────────
     volumes:
-      - ./models:/root/.cache/modelscope   # 模型自动下载后持久化
-      - ./data:/app/data                    # 任务结果 + 音频文件 + 声纹库
-      - ./hotwords.txt:/app/hotwords.txt:ro  # 热词（可选）
+      # 模型缓存：挂载到宿主机，容器删除后模型不丢失
+      - ./models:/root/.cache/modelscope:z
+      # 数据目录：任务结果、上传音频、声纹库
+      - ./data:/app/data:z
+      # 热词文件（可选，无需热词可删除此映射）
+      - ./hotwords.txt:/app/hotwords.txt:ro
+
+    # ── 共享内存（模型推理需要）───────────────
     shm_size: "2gb"
+
+    # ── 重启策略 ─────────────────────────────
     restart: unless-stopped
-    # ── GPU 模式：取消下面注释 ──────────────────
+
+    # ═══════════════════════════════════════════
+    #  GPU 模式（需 NVIDIA Container Toolkit）
+    #  1. .env 中设置 DEVICE=cuda
+    #  2. 取消下面 deploy 注释
+    #  3. docker compose up -d
+    # ═══════════════════════════════════════════
     # deploy:
     #   resources:
     #     reservations:
