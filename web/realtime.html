@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FunASR - 实时录音</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="logo">🎙️ FunASR</span>
+  <a href="index.html">📁 文件转写</a>
+  <a href="realtime.html" class="active">🎤 实时录音</a>
+  <a href="tasks.html">📋 任务管理</a>
+  <a href="speakers.html">👥 声纹管理</a>
+  <a href="status.html">⚙️ 服务状态</a>
+</nav>
+
+<div class="container">
+  <h1>实时录音转写</h1>
+  <p class="desc">浏览器麦克风实时语音识别，支持流式/离线/2pass</p>
+
+  <div class="card">
+    <div class="params">
+      <div class="param"><label>识别模式</label><select id="mode"><option value="2pass">2pass（实时+离线修正）</option><option value="online">online（纯实时）</option><option value="offline">offline（离线整句）</option></select></div>
+      <div class="param"><label>热词</label><input type="text" id="hotwords" placeholder='如: {"Hello":20}'></div>
+    </div>
+    <button class="record-btn" id="recordBtn" onclick="toggleRecord()">🎤</button>
+    <div style="text-align:center;font-size:14px" id="statusText">点击按钮开始录音</div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">识别结果</h2>
+    <div style="display:flex;gap:10px;margin-bottom:12px">
+      <button class="btn btn-sm btn-secondary" onclick="copyText(finalHistory.join('\\n'))">📋 复制全部</button>
+      <button class="btn btn-sm btn-danger" onclick="clearHistory()">🗑 清空</button>
+    </div>
+    <div class="live-text" id="liveText"><span style="color:#ccc">等待录音...</span></div>
+  </div>
+
+  <div class="card">
+    <h2 style="margin-top:0">历史记录 <span id="histCount" style="font-size:13px;color:#999"></span></h2>
+    <div id="history" style="max-height:300px;overflow-y:auto;font-size:14px"></div>
+  </div>
+</div>
+
+<script src="js/ws.js"></script>
+<script src="js/api.js"></script>
+<script>
+let ws = null, recorder = null, recording = false;
+let partialText = '', finalHistory = [];
+
+function toggleRecord() { recording ? stopRecord() : startRecord(); }
+
+async function startRecord() {
+  const btn = document.getElementById('recordBtn');
+  try {
+    recorder = new PCMRecorder(data => ws?.sendAudio(data));
+    await recorder.start();
+    ws = new FunASRWebSocket(handleMsg, handleState);
+    ws.connect(document.getElementById('mode').value, '5,10,5', 10, document.getElementById('hotwords').value);
+    recording = true; btn.classList.add('recording'); btn.textContent = '⏹';
+    document.getElementById('statusText').textContent = '录音中... 请说话';
+    partialText = ''; document.getElementById('liveText').innerHTML = '';
+  } catch(e) { toast('无法访问麦克风: '+e.message, 'error'); }
+}
+
+function stopRecord() {
+  recorder?.stop(); ws?.stop(); setTimeout(() => ws?.close(), 2000);
+  recording = false;
+  document.getElementById('recordBtn').classList.remove('recording'); document.getElementById('recordBtn').textContent = '🎤';
+  document.getElementById('statusText').textContent = '已停止';
+}
+
+function handleMsg(data) {
+  const el = document.getElementById('liveText');
+  if (data.mode === '2pass-online' || data.mode === 'online') {
+    partialText = data.text;
+    el.innerHTML = finalHistory.map(t => `<span class="final">${t}</span><br>`).join('') + `<span class="partial">${partialText}</span>`;
+  }
+  if (data.mode === '2pass-offline' || (data.mode === 'offline' && data.is_final)) {
+    if (data.text) finalHistory.push(data.text);
+    partialText = '';
+    el.innerHTML = finalHistory.map(t => `<span class="final">${t}</span><br>`).join('');
+    document.getElementById('histCount').textContent = `(${finalHistory.length} 句)`;
+    updateHistory();
+  }
+}
+
+function handleState(s) {
+  const t = document.getElementById('statusText');
+  t.textContent = s==='connected'?'已连接，录音中...':s==='disconnected'?'连接断开':'连接错误';
+  if (s==='disconnected') t.style.color = 'var(--danger)'; else t.style.color = '';
+}
+
+function updateHistory() {
+  document.getElementById('history').innerHTML = finalHistory.slice().reverse().map((t,i) =>
+    `<div style="padding:8px 0;border-bottom:1px solid #eee;display:flex;gap:10px"><span style="color:#999;min-width:30px">#${finalHistory.length-i}</span><span>${t}</span></div>`
+  ).join('');
+}
+
+function clearHistory() { finalHistory=[]; document.getElementById('history').innerHTML=''; document.getElementById('histCount').textContent=''; document.getElementById('liveText').innerHTML='<span style="color:#999">等待录音...</span>'; }
+</script>
+</body>
+</html>

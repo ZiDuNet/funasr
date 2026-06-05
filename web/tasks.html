@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FunASR - 任务管理</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="logo">🎙️ FunASR</span>
+  <a href="index.html">📁 文件转写</a>
+  <a href="realtime.html">🎤 实时录音</a>
+  <a href="tasks.html" class="active">📋 任务管理</a>
+  <a href="speakers.html">👥 声纹管理</a>
+  <a href="status.html">⚙️ 服务状态</a>
+</nav>
+<div class="container">
+  <h1>异步任务管理</h1>
+  <p class="desc">长文件/URL 异步转写，提交后通过 task_id 查询结果。结果保留 <span id="ttlDays">7</span> 天自动清理。</p>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
+      <h2 style="margin:0">任务列表</h2>
+      <button class="btn btn-sm btn-secondary" onclick="loadTasks()">🔄 刷新</button>
+    </div>
+    <table>
+      <thead><tr><th>Task ID</th><th>状态</th><th>来源</th><th>创建时间</th><th>耗时</th><th>操作</th></tr></thead>
+      <tbody id="taskBody"><tr><td colspan="6" style="text-align:center;color:#999">加载中...</td></tr></tbody>
+    </table>
+  </div>
+
+  <div class="card" id="detailCard" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">详情: <code id="detailId" style="font-size:14px"></code></h2>
+      <div>
+        <button class="btn btn-sm btn-secondary" onclick="refreshDetail()">🔄</button>
+        <button class="btn btn-sm btn-primary" onclick="copyText(document.getElementById('detailText').textContent)">📋 复制</button>
+      </div>
+    </div>
+    <div class="result-box" id="detailText" style="white-space:pre-wrap;margin-top:12px"></div>
+    <div class="timeline" id="detailTimeline"></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+let currentTaskId = null, pollTimer = null;
+
+async function loadTasks() {
+  try {
+    const data = await FunASRApi.listTasks();
+    const tbody = document.getElementById('taskBody');
+    if (!data.tasks.length) { tbody.innerHTML='<tr><td colspan="6" style="text-align:center;color:#999">暂无任务</td></tr>'; return; }
+    tbody.innerHTML = data.tasks.map(t => `
+      <tr>
+        <td style="font-family:monospace;font-size:13px">${t.task_id}</td>
+        <td><span class="badge badge-${t.status}">${statusLabel(t.status)}</span></td>
+        <td>${t.url?'🔗 URL':'📁 文件'}</td>
+        <td style="font-size:13px">${formatTime(t.created_at)}</td>
+        <td>${t.duration_seconds?t.duration_seconds.toFixed(1)+'s':'-'}</td>
+        <td>
+          <button class="btn btn-sm btn-primary" onclick="viewTask('${t.task_id}')">查看</button>
+          <button class="btn btn-sm btn-danger" onclick="del('${t.task_id}')">删除</button>
+        </td>
+      </tr>
+    `).join('');
+  } catch(e) { document.getElementById('taskBody').innerHTML=`<tr><td colspan="6" style="color:red">${e.message}</td></tr>`; }
+}
+
+async function viewTask(tid) {
+  currentTaskId = tid; document.getElementById('detailCard').style.display='block'; document.getElementById('detailId').textContent=tid;
+  await showTask();
+  if (pollTimer) clearInterval(pollTimer);
+  pollTimer = setInterval(async () => {
+    const t = await FunASRApi.getTask(tid);
+    renderDetail(t);
+    if (t.status==='completed'||t.status==='failed') { clearInterval(pollTimer); pollTimer=null; loadTasks(); }
+  }, 3000);
+}
+async function showTask() { renderDetail(await FunASRApi.getTask(currentTaskId)); }
+async function refreshDetail() { if (currentTaskId) { renderDetail(await FunASRApi.getTask(currentTaskId)); } }
+
+function renderDetail(task) {
+  const el = document.getElementById('detailText');
+  if (task.status==='completed' && task.result) {
+    el.textContent = task.result.text || '';
+    if (task.result.segments?.length) {
+      document.getElementById('detailTimeline').innerHTML = task.result.segments.map(s => {
+        const spk = s.speaker ? `<span class="badge ${speakerColor(s.speaker_id)}">${s.speaker}</span>` : (s.speaker_id!==undefined?`<span class="badge ${speakerColor(s.speaker_id)}">说话人${s.speaker_id}</span>`:'');
+        return `<div class="timeline-item"><div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div><div class="timeline-content">${spk} ${s.text}</div></div>`;
+      }).join('');
+    }
+  } else if (task.status==='failed') {
+    el.textContent = '❌ '+(task.error||'未知错误');
+  } else {
+    el.textContent = `⏳ ${statusLabel(task.status)}...`;
+  }
+}
+
+async function del(tid) { if (confirm(`删除任务 ${tid}?`)) { await FunASRApi.deleteTask(tid); if (currentTaskId===tid) document.getElementById('detailCard').style.display='none'; loadTasks(); }}
+
+loadTasks();
+setInterval(loadTasks, 30000);
+</script>
+</body>
+</html>

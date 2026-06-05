@@ -1,0 +1,9 @@
+funasr
+fastapi
+uvicorn[standard]
+python-multipart
+aiofiles
+httpx
+fastmcp>=2.3
+numpy
+scipy

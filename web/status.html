@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FunASR - 服务状态</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="logo">🎙️ FunASR</span>
+  <a href="index.html">文件转写</a>
+  <a href="realtime.html">实时录音</a>
+  <a href="tasks.html">任务管理</a>
+  <a href="status.html" class="active">服务状态</a>
+</nav>
+<div class="container">
+  <h1>服务状态</h1>
+  <p class="desc">查看模型加载状态、设备信息和运行指标</p>
+
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">运行状态</h2>
+      <button class="btn btn-secondary" onclick="loadStatus()">🔄 刷新</button>
+    </div>
+    <table style="margin-top:12px">
+      <tr><td style="width:160px;font-weight:600">服务状态</td><td id="status">-</td></tr>
+      <tr><td style="font-weight:600">运行设备</td><td id="device">-</td></tr>
+      <tr><td style="font-weight:600">已加载模型</td><td id="models">-</td></tr>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>模型说明</h2>
+    <table>
+      <thead><tr><th>模型</th><th>功能</th><th>状态</th></tr></thead>
+      <tbody>
+        <tr><td>SenseVoiceSmall</td><td>ASR + 情感识别 + 事件检测（中英日韩粤）</td><td class="model-status" data-model="sensevoice">-</td></tr>
+        <tr><td>paraformer-zh-streaming</td><td>流式实时识别</td><td class="model-status" data-model="streaming">-</td></tr>
+        <tr><td>fsmn-vad</td><td>语音活动检测（VAD）</td><td class="model-status" data-model="vad">-</td></tr>
+        <tr><td>ct-punc</td><td>标点恢复</td><td class="model-status" data-model="punc">-</td></tr>
+        <tr><td>cam++ (campplus_sv)</td><td>说话人分离/声纹识别</td><td class="model-status" data-model="sv">-</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>API 端点一览</h2>
+    <table>
+      <thead><tr><th>端点</th><th>方法</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>/v1/audio/transcriptions</code></td><td>POST</td><td>OpenAI 兼容同步转写</td></tr>
+        <tr><td><code>/v1/models</code></td><td>GET</td><td>列出可用模型</td></tr>
+        <tr><td><code>/health</code></td><td>GET</td><td>健康检查</td></tr>
+        <tr><td><code>/recognition</code></td><td>POST</td><td>HTTP REST 同步转写</td></tr>
+        <tr><td><code>/api/tasks/submit</code></td><td>POST</td><td>提交异步转写任务</td></tr>
+        <tr><td><code>/api/tasks</code></td><td>GET</td><td>任务列表</td></tr>
+        <tr><td><code>/api/tasks/{id}</code></td><td>GET</td><td>查询任务结果</td></tr>
+        <tr><td><code>/ws</code></td><td>WebSocket</td><td>流式实时识别</td></tr>
+        <tr><td><code>/mcp</code></td><td>Streamable HTTP</td><td>MCP 工具接入</td></tr>
+        <tr><td><code>/docs</code></td><td>GET</td><td>Swagger API 文档</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <h2>参数化控制说明</h2>
+    <table>
+      <thead><tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><code>model</code></td><td>string</td><td>sensevoice</td><td>模型选择</td></tr>
+        <tr><td><code>speaker_diarization</code></td><td>bool</td><td>false</td><td>说话人分离（需 cam++ 模型）</td></tr>
+        <tr><td><code>emotion</code></td><td>bool</td><td>false</td><td>情感标签（SenseVoice 自带）</td></tr>
+        <tr><td><code>events</code></td><td>bool</td><td>false</td><td>音频事件标签（SenseVoice 自带）</td></tr>
+        <tr><td><code>punctuation</code></td><td>bool</td><td>true</td><td>标点恢复</td></tr>
+        <tr><td><code>language</code></td><td>string</td><td>auto</td><td>语言提示</td></tr>
+        <tr><td><code>response_format</code></td><td>string</td><td>json</td><td>json / verbose_json</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+async function loadStatus() {
+  try {
+    const data = await FunASRApi.health();
+    document.getElementById('status').innerHTML = `<span class="badge badge-completed">运行中</span>`;
+    document.getElementById('device').textContent = data.device || '-';
+    document.getElementById('models').textContent = (data.models_loaded || []).join(', ') || '无';
+
+    // 更新模型状态
+    const loaded = data.models_loaded || [];
+    document.querySelectorAll('.model-status').forEach(el => {
+      const m = el.dataset.model;
+      el.innerHTML = loaded.includes(m)
+        ? '<span class="badge badge-completed">✅ 已加载</span>'
+        : '<span style="color:#999">未加载</span>';
+    });
+  } catch (e) {
+    document.getElementById('status').innerHTML = `<span class="badge badge-failed">连接失败</span>`;
+  }
+}
+
+loadStatus();
+setInterval(loadStatus, 30000);
+</script>
+</body>
+</html>

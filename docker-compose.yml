@@ -1,0 +1,43 @@
+# ── FunASR All-in-One ──────────────────────────
+# 单一镜像，CPU/GPU 通过 .env 中的 DEVICE 切换
+#
+# 使用方式:
+#   cp .env.example .env
+#   # CPU: .env 设为 DEVICE=cpu
+#   # GPU: .env 设为 DEVICE=cuda，取消 deploy 注释
+#   docker compose up --build -d
+# ───────────────────────────────────────────────
+
+services:
+  funasr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: funasr-all-in-one:latest
+    container_name: funasr
+    ports:
+      - "${PORT:-8000}:8000"
+    environment:
+      - FUNASR_DEVICE=${DEVICE:-cpu}
+      - FUNASR_PORT=8000
+      - FUNASR_NCPU=${NCPU:-4}
+      - FUNASR_WORKER_THREADS=${WORKER_THREADS:-8}
+      - FUNASR_CONCURRENT_VAD=${CONCURRENT_VAD:-4}
+      - FUNASR_CONCURRENT_ASR_ONLINE=${CONCURRENT_ASR_ONLINE:-4}
+      - FUNASR_CONCURRENT_ASR_OFFLINE=${CONCURRENT_ASR_OFFLINE:-2}
+      - FUNASR_DATA_TTL_DAYS=${DATA_TTL_DAYS:-7}
+      - MODELSCOPE_CACHE=/root/.cache/modelscope
+    volumes:
+      - ./models:/root/.cache/modelscope   # 模型自动下载后持久化
+      - ./data:/app/data                    # 任务结果 + 音频文件 + 声纹库
+      - ./hotwords.txt:/app/hotwords.txt:ro  # 热词（可选）
+    shm_size: "2gb"
+    restart: unless-stopped
+    # ── GPU 模式：取消下面注释 ──────────────────
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]

@@ -1,0 +1,23 @@
+# 模型目录
+models/*/
+!models/installmodel.sh
+
+# 数据目录
+data/
+
+# 环境变量
+.env
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+
+# IDE
+.vscode/
+.idea/
+
+# 临时文件
+*.tmp
+.DS_Store

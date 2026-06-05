@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FunASR - 文件转写</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <span class="logo">🎙️ FunASR</span>
+  <a href="index.html" class="active">📁 文件转写</a>
+  <a href="realtime.html">🎤 实时录音</a>
+  <a href="tasks.html">📋 任务管理</a>
+  <a href="speakers.html">👥 声纹管理</a>
+  <a href="status.html">⚙️ 服务状态</a>
+</nav>
+
+<div class="container">
+  <h1>文件转写</h1>
+  <p class="desc">上传音频/视频或输入 URL，支持参数化控制识别能力</p>
+
+  <!-- 上传 -->
+  <div class="card">
+    <div class="upload-zone" id="dropZone">
+      <input type="file" id="fileInput" accept="audio/*,video/*">
+      <div class="icon">📁</div>
+      <div class="text">拖拽文件到此处，或点击选择文件</div>
+      <div class="hint">支持 wav / mp3 / mp4 / flac / m4a / ogg / webm</div>
+    </div>
+    <div class="file-info" id="fileInfo">
+      <span>📄</span>
+      <span class="name" id="fileName"></span>
+      <span class="size" id="fileSize"></span>
+      <span class="remove" onclick="clearFile()">✕ 移除</span>
+    </div>
+
+    <div class="url-row">
+      <input type="text" id="urlInput" placeholder="🔗  或输入远程音频 URL">
+      <button class="btn btn-secondary" onclick="submitUrl()">提交 URL</button>
+    </div>
+  </div>
+
+  <!-- 参数 -->
+  <div class="card">
+    <h2 style="margin-top:0">识别参数</h2>
+    <div class="params">
+      <div class="param"><label>模型</label><select id="model"><option value="sensevoice">SenseVoice（推荐）</option><option value="paraformer">Paraformer-zh</option></select></div>
+      <div class="param"><label>语言</label><select id="language"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="ko">韩文</option><option value="yue">粤语</option></select></div>
+      <div class="param"><label>输出格式</label><select id="format"><option value="verbose_json">详细（含分段+时间戳）</option><option value="json">简洁（仅文本）</option></select></div>
+      <div class="param"><label>说话人分组</label><input type="text" id="speakerGroup" placeholder='留空则不匹配声纹'></div>
+      <div class="toggle"><input type="checkbox" id="spk"><label for="spk">👥 说话人分离</label></div>
+      <div class="toggle"><input type="checkbox" id="emotion"><label for="emotion">😊 情感识别</label></div>
+      <div class="toggle"><input type="checkbox" id="events"><label for="events">🎵 事件检测</label></div>
+      <div class="toggle"><input type="checkbox" id="punc" checked><label for="punc">📝 标点恢复</label></div>
+    </div>
+
+    <div class="btn-group">
+      <button class="btn btn-primary" id="btnSync" onclick="transcribeSync()" disabled>⚡ 同步转写（短音频）</button>
+      <button class="btn btn-secondary" id="btnAsync" onclick="transcribeAsync()" disabled>📦 异步转写（长文件）</button>
+    </div>
+  </div>
+
+  <!-- 结果 -->
+  <div class="card" id="resultCard" style="display:none">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">转写结果</h2>
+      <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('resultText').textContent)">📋 复制</button>
+    </div>
+    <div class="result-meta" id="resultMeta"></div>
+    <div class="result-box" id="resultText" style="white-space:pre-wrap"></div>
+    <div class="timeline" id="timelineView"></div>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+let selectedFile = null;
+const dropZone = document.getElementById('dropZone');
+const fileInput = document.getElementById('fileInput');
+
+dropZone.onclick = () => fileInput.click();
+dropZone.ondragover = e => { e.preventDefault(); dropZone.classList.add('dragover'); };
+dropZone.ondragleave = () => dropZone.classList.remove('dragover');
+dropZone.ondrop = e => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); };
+fileInput.onchange = e => handleFile(e.target.files[0]);
+
+function handleFile(file) {
+  if (!file) return;
+  selectedFile = file;
+  document.getElementById('fileInfo').style.display = 'flex';
+  document.getElementById('fileName').textContent = file.name;
+  document.getElementById('fileSize').textContent = formatBytes(file.size);
+  document.getElementById('btnSync').disabled = false;
+  document.getElementById('btnAsync').disabled = false;
+}
+function clearFile() {
+  selectedFile = null;
+  document.getElementById('fileInfo').style.display = 'none';
+  document.getElementById('btnSync').disabled = true;
+  document.getElementById('btnAsync').disabled = true;
+}
+
+function getParams() {
+  return {
+    model: document.getElementById('model').value,
+    language: document.getElementById('language').value,
+    response_format: document.getElementById('format').value,
+    speaker_diarization: document.getElementById('spk').checked,
+    speaker_group: document.getElementById('speakerGroup').value.trim() || undefined,
+    emotion: document.getElementById('emotion').checked,
+    events: document.getElementById('events').checked,
+    punctuation: document.getElementById('punc').checked,
+  };
+}
+
+async function transcribeSync() {
+  if (!selectedFile) return;
+  const btn = document.getElementById('btnSync');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 转写中...';
+  try {
+    const data = await FunASRApi.transcribe(selectedFile, getParams());
+    showResult(data);
+  } catch(e) { toast('转写失败: '+e.message, 'error'); }
+  btn.disabled = false; btn.innerHTML = '⚡ 同步转写（短音频）';
+}
+
+async function transcribeAsync() {
+  if (!selectedFile) return;
+  const btn = document.getElementById('btnAsync');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 提交中...';
+  try {
+    const task = await FunASRApi.submitTask(selectedFile, getParams());
+    toast(`任务已提交！task_id: ${task.task_id}，请到任务管理查看结果`, 'info', 6000);
+  } catch(e) { toast('提交失败: '+e.message, 'error'); }
+  btn.disabled = false; btn.innerHTML = '📦 异步转写（长文件）';
+}
+
+async function submitUrl() {
+  const url = document.getElementById('urlInput').value.trim();
+  if (!url) return toast('请输入 URL','error');
+  try {
+    const task = await FunASRApi.submitTask(url, getParams());
+    toast(`URL 任务已提交！task_id: ${task.task_id}`, 'info', 6000);
+  } catch(e) { toast('提交失败: '+e.message, 'error'); }
+}
+
+function showResult(data) {
+  document.getElementById('resultCard').style.display = 'block';
+  document.getElementById('resultText').textContent = data.text || '';
+
+  const meta = [];
+  if (data.model) meta.push('模型: '+data.model);
+  if (data.language) meta.push('语言: '+data.language);
+  if (data.duration) meta.push('耗时: '+data.duration+'s');
+  if (data.emotion) meta.push('情感: '+data.emotion);
+  if (data.events?.length) meta.push('事件: '+data.events.join(' '));
+  if (data.speaker_group) meta.push('声纹组: '+data.speaker_group);
+  document.getElementById('resultMeta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
+
+  if (data.segments?.length) {
+    let html = '';
+    data.segments.forEach(s => {
+      const spk = s.speaker ? `<span class="badge ${speakerColor(s.speaker_id)}">${s.speaker}</span>` : (s.speaker_id !== undefined ? `<span class="badge ${speakerColor(s.speaker_id)}">说话人${s.speaker_id}</span>` : '');
+      html += `<div class="timeline-item">
+        <div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div>
+        <div class="timeline-content">${spk} ${s.text}</div>
+      </div>`;
+    });
+    document.getElementById('timelineView').innerHTML = html;
+  } else {
+    document.getElementById('timelineView').innerHTML = '';
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FunASR - 声纹管理</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<nav class="nav">
+  <span class="logo">🎙️ FunASR</span>
+  <a href="index.html">📁 文件转写</a>
+  <a href="realtime.html">🎤 实时录音</a>
+  <a href="tasks.html">📋 任务管理</a>
+  <a href="speakers.html" class="active">👥 声纹管理</a>
+  <a href="status.html">⚙️ 服务状态</a>
+</nav>
+<div class="container">
+  <h1>声纹管理</h1>
+  <p class="desc">注册说话人声纹用于转写时自动识别。不同 group 之间声纹隔离，实现多租户。</p>
+
+  <!-- 注册 -->
+  <div class="card">
+    <h2 style="margin-top:0">注册新说话人</h2>
+    <div class="upload-zone" id="spkDropZone" style="padding:24px">
+      <input type="file" id="spkAudio" accept="audio/*">
+      <div class="text" id="spkAudioLabel">点击选择参考音频（5-30秒，单人说话，背景安静）</div>
+    </div>
+    <div class="params" style="margin-top:12px">
+      <div class="param"><label>说话人名字</label><input type="text" id="spkName" placeholder="如：张三"></div>
+      <div class="param"><label>group_id（留空自动新建）</label><input type="text" id="spkGroup" placeholder="自动生成新 group"></div>
+    </div>
+    <button class="btn btn-primary" onclick="registerSpeaker()">📝 注册声纹</button>
+  </div>
+
+  <!-- 列表 -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h2 style="margin:0">声纹组列表</h2>
+      <button class="btn btn-sm btn-secondary" onclick="loadGroups()">🔄 刷新</button>
+    </div>
+    <table id="groupsTable" style="margin-top:12px">
+      <thead><tr><th>Group ID</th><th>说话人数</th><th>说话人列表</th><th>操作</th></tr></thead>
+      <tbody id="groupsBody"><tr><td colspan="4" style="text-align:center;color:#999">加载中...</td></tr></tbody>
+    </table>
+  </div>
+</div>
+
+<script src="js/api.js"></script>
+<script>
+const spkDrop = document.getElementById('spkDropZone');
+const spkInput = document.getElementById('spkAudio');
+spkDrop.onclick = () => spkInput.click();
+spkDrop.ondragover = e => { e.preventDefault(); spkDrop.classList.add('dragover'); };
+spkDrop.ondragleave = () => spkDrop.classList.remove('dragover');
+spkDrop.ondrop = e => { e.preventDefault(); spkDrop.classList.remove('dragover'); if(e.dataTransfer.files[0]){ spkInput.files=e.dataTransfer.files; document.getElementById('spkAudioLabel').textContent='已选择: '+e.dataTransfer.files[0].name; }};
+spkInput.onchange = e => { if(e.target.files[0]) document.getElementById('spkAudioLabel').textContent='已选择: '+e.target.files[0].name; };
+
+async function registerSpeaker() {
+  const audio = spkInput.files[0];
+  const name = document.getElementById('spkName').value.trim();
+  if (!audio || !name) return toast('请选择音频并输入名字','error');
+  try {
+    const group = document.getElementById('spkGroup').value.trim() || undefined;
+    const res = await FunASRApi.registerSpeaker(audio, name, group);
+    toast(`✅ 注册成功！group_id: ${res.group_id}，请保存好此 ID`, 'success', 8000);
+    document.getElementById('spkGroupLabel')?.textContent || '';
+    loadGroups();
+  } catch(e) { toast('注册失败: '+e.message, 'error'); }
+}
+
+async function loadGroups() {
+  try {
+    const data = await FunASRApi.listSpeakerGroups();
+    const tbody = document.getElementById('groupsBody');
+    if (!data.groups?.length) {
+      tbody.innerHTML = '<tr><td colspan="4" style="text-align:center;color:#999">暂无已注册声纹组，请先注册</td></tr>';
+      return;
+    }
+    tbody.innerHTML = data.groups.map(g => `<tr>
+      <td style="font-family:monospace">${g.group_id}</td>
+      <td>${g.speaker_count}</td>
+      <td>${g.speakers.join(', ')}</td>
+      <td>
+        <button class="btn btn-sm btn-primary" onclick="copyText('${g.group_id}')">📋 复制ID</button>
+        <button class="btn btn-sm btn-danger" onclick="deleteGroup('${g.group_id}')">🗑</button>
+      </td>
+    </tr>`).join('');
+  } catch(e) { document.getElementById('groupsBody').innerHTML = '<tr><td colspan="4" style="color:red">加载失败: '+e.message+'</td></tr>'; }
+}
+
+async function deleteGroup(gid) {
+  try {
+    const data = await FunASRApi.getSpeakers(gid);
+    for (const name of data.speakers) {
+      await FunASRApi.deleteSpeaker(gid, name);
+    }
+    toast('已删除 group: '+gid, 'success');
+    loadGroups();
+  } catch(e) { toast('删除失败: '+e.message, 'error'); }
+}
+
+loadGroups();
+</script>
+</body>
+</html>
