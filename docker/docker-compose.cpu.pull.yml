@@ -1,16 +1,13 @@
 # ═══════════════════════════════════════════════════
-#  FunASR All-in-One — CPU 版
+#  FunASR All-in-One — CPU 云端镜像版
 #  ──────────────────────────────────────────────
-#  使用: cp docker/.env.cpu .env && cp docker/docker-compose.cpu.yml docker-compose.override.yml
-#        docker compose up -d
+#  使用: cp docker/.env.cpu .env
+#        docker compose -f docker/docker-compose.cpu.pull.yml up -d
 #  ═══════════════════════════════════════════════════
 
 services:
   funasr:
-    build:
-      context: ..
-      dockerfile: Dockerfile
-    image: funasr-all-in-one:cpu
+    image: crpi-kdrx8sxe4fzlfrwj.cn-hangzhou.personal.cr.aliyuncs.com/wushuo98/funasr:latest
     container_name: funasr
 
     ports:
@@ -26,7 +23,6 @@ services:
       - API_TOKEN=${API_TOKEN:-}
       - MODELSCOPE_CACHE=/root/.cache/modelscope
       - FUNASR_DATA_DIR=/app/data
-      # CPU 保守并发
       - FUNASR_NCPU=${FUNASR_NCPU:-4}
       - FUNASR_WORKER_THREADS=${FUNASR_WORKER_THREADS:-4}
       - FUNASR_CONCURRENT_VAD=${FUNASR_CONCURRENT_VAD:-2}

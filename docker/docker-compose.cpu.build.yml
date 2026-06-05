@@ -1,10 +1,9 @@
 # ═══════════════════════════════════════════════════
-#  FunASR All-in-One — GPU 版
+#  FunASR All-in-One — CPU 本地构建版
 #  ──────────────────────────────────────────────
-#  前提: 安装 NVIDIA Container Toolkit
-#        https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html
-#  使用: cp docker/.env.gpu .env && cp docker/docker-compose.gpu.yml docker-compose.override.yml
-#        docker compose up -d
+#  使用: cp docker/.env.cpu .env
+#        docker compose -f docker/docker-compose.cpu.build.yml build
+#        docker compose -f docker/docker-compose.cpu.build.yml up -d
 #  ═══════════════════════════════════════════════════
 
 services:
@@ -12,14 +11,14 @@ services:
     build:
       context: ..
       dockerfile: Dockerfile
-    image: funasr-all-in-one:gpu
+    image: funasr-all-in-one:cpu
     container_name: funasr
 
     ports:
       - "${FUNASR_PORT:-17767}:17767"
 
     environment:
-      - FUNASR_DEVICE=cuda
+      - FUNASR_DEVICE=cpu
       - MODEL=${MODEL:-fun-asr-nano}
       - FUNASR_PORT=17767
       - PRELOAD_ALL=${PRELOAD_ALL:-true}
@@ -28,16 +27,16 @@ services:
       - API_TOKEN=${API_TOKEN:-}
       - MODELSCOPE_CACHE=/root/.cache/modelscope
       - FUNASR_DATA_DIR=/app/data
-      # GPU 高并发
+      # CPU 保守并发
       - FUNASR_NCPU=${FUNASR_NCPU:-4}
-      - FUNASR_WORKER_THREADS=${FUNASR_WORKER_THREADS:-8}
-      - FUNASR_CONCURRENT_VAD=${FUNASR_CONCURRENT_VAD:-4}
-      - FUNASR_CONCURRENT_ASR_OFFLINE=${FUNASR_CONCURRENT_ASR_OFFLINE:-2}
-      - FUNASR_CONCURRENT_ASR_ONLINE=${FUNASR_CONCURRENT_ASR_ONLINE:-4}
-      - FUNASR_CONCURRENT_PUNC=${FUNASR_CONCURRENT_PUNC:-2}
-      - FUNASR_CONCURRENT_SV=${FUNASR_CONCURRENT_SV:-2}
-      - FUNASR_CONCURRENT_EMOTION=${FUNASR_CONCURRENT_EMOTION:-2}
-      - FUNASR_MAX_TASKS=${FUNASR_MAX_TASKS:-1000}
+      - FUNASR_WORKER_THREADS=${FUNASR_WORKER_THREADS:-4}
+      - FUNASR_CONCURRENT_VAD=${FUNASR_CONCURRENT_VAD:-2}
+      - FUNASR_CONCURRENT_ASR_OFFLINE=${FUNASR_CONCURRENT_ASR_OFFLINE:-1}
+      - FUNASR_CONCURRENT_ASR_ONLINE=${FUNASR_CONCURRENT_ASR_ONLINE:-2}
+      - FUNASR_CONCURRENT_PUNC=${FUNASR_CONCURRENT_PUNC:-1}
+      - FUNASR_CONCURRENT_SV=${FUNASR_CONCURRENT_SV:-1}
+      - FUNASR_CONCURRENT_EMOTION=${FUNASR_CONCURRENT_EMOTION:-1}
+      - FUNASR_MAX_TASKS=${FUNASR_MAX_TASKS:-100}
       - FUNASR_DATA_TTL_DAYS=${FUNASR_DATA_TTL_DAYS:-7}
 
     volumes:
@@ -48,11 +47,3 @@ services:
 
     shm_size: "2gb"
     restart: unless-stopped
-
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: all
-              capabilities: [gpu]

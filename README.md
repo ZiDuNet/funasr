@@ -108,12 +108,18 @@
 git clone https://github.com/ZiDuNet/funasr.git
 cd funasr/api
 
-# 配置
+# 方式一：云端镜像（推荐，无需构建）
 cp .env.example .env
-# 编辑 .env 选择 MODEL=xxx
+docker compose up -d
 
-# 构建并启动
-docker compose up --build -d
+# 方式二：本地构建
+cp .env.example .env
+docker compose -f docker-compose.build.yml build
+docker compose -f docker-compose.build.yml up -d
+
+# CPU/GPU 专属配置
+cp docker/.env.cpu .env    # CPU 环境
+cp docker/.env.gpu .env    # GPU 环境
 
 # 等模型下载完成（首次，后续秒启动）
 docker logs -f funasr
@@ -122,42 +128,40 @@ docker logs -f funasr
 curl http://localhost:17767/health
 ```
 
+## Compose 文件说明
+
+| 文件 | 用途 |
+|------|------|
+| `docker-compose.yml` | **默认**，拉取云端镜像直接启动 |
+| `docker-compose.build.yml` | 本地 Dockerfile 构建 |
+| `docker/docker-compose.cpu.build.yml` | CPU 本地构建 |
+| `docker/docker-compose.gpu.build.yml` | GPU 本地构建 |
+| `docker/docker-compose.cpu.pull.yml` | CPU 云端镜像 |
+| `docker/docker-compose.gpu.pull.yml` | GPU 云端镜像 |
+
 ## 切换模型
 
 ```bash
 # 编辑 .env
 MODEL=qwen3-asr              # 切到 Qwen3-ASR
-FUNASR_DEVICE=cuda           # 大模型建议 GPU
+FUNASR_DEVICE=cuda           # 大模型需 GPU
 
-# 重启（自动下载新模型）
+# 重启
 docker compose restart
-docker logs -f funasr  # 看下载进度
-```
+docker logs -f funasr
 
-## GPU 模式
-
-```bash
-# 1. .env 中 FUNASR_DEVICE=cuda
-# 2. docker-compose.yml 取消 deploy 注释
-# 3. 重启
-docker compose down && docker compose up -d
+# GPU 模式（需 NVIDIA Container Toolkit）
+cp docker/.env.gpu .env
+docker compose -f docker/docker-compose.gpu.build.yml up -d
 ```
 
 ## 常用操作
 
 ```bash
-docker compose up -d          # 启动（已构建过）
-docker compose up --build -d  # 重新构建 + 启动
+docker compose up -d          # 启动（云端镜像）
 docker compose logs -f        # 日志
-docker compose restart        # 重启（切换模型/配置后）
+docker compose restart        # 重启
 docker compose down           # 停止
-```
-
-## 使用在线镜像
-
-```bash
-# 不构建，直接拉取远程镜像
-docker compose -f docker-compose.pull.yml up -d
 ```
 
 ---
@@ -238,8 +242,12 @@ api/
 ├── web/                     ← Web UI（挂载，改前端无需重建）
 ├── models/                  ← 模型缓存（挂载持久化）
 ├── data/                    ← 任务 + 声纹（挂载持久化）
-├── docker-compose.yml       ← 本地构建版
-├── docker-compose.pull.yml  ← 在线镜像版
+├── docker-compose.yml       ← 默认（云端镜像）
+├── docker-compose.build.yml ← 本地构建版
+├── docker/
+│   ├── .env.cpu / .env.gpu  ← CPU/GPU 环境配置
+│   ├── docker-compose.cpu.build.yml / .gpu.build.yml
+│   └── docker-compose.cpu.pull.yml / .gpu.pull.yml
 ├── Dockerfile
 ├── requirements.txt
 ├── .env.example

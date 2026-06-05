@@ -1,0 +1,80 @@
+# ═══════════════════════════════════════════════════
+#  FunASR All-in-One — 本地构建版
+#  ──────────────────────────────────────────────
+#  从 Dockerfile 本地构建镜像
+#  ═══════════════════════════════════════════════════
+#  使用:
+#   1. cp .env.example .env
+#   2. docker compose -f docker-compose.build.yml build
+#   3. docker compose -f docker-compose.build.yml up -d
+#
+#  日志:  docker compose -f docker-compose.build.yml logs -f
+#  停止:  docker compose -f docker-compose.build.yml down
+#  ═══════════════════════════════════════════════════
+
+services:
+  funasr:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      # 海外网络可覆盖基础镜像: args: [{BASE_IMAGE: python:3.10-slim}]
+    image: funasr-all-in-one:latest
+    container_name: funasr
+
+    # ── 端口映射 ─────────────────────────────
+    # 修改 .env 中 FUNASR_PORT 可改宿主机端口
+    ports:
+      - "${FUNASR_PORT:-17767}:17767"
+
+    # ── 环境变量 ─────────────────────────────
+    # 所有可配参数见 .env.example
+    environment:
+      # 核心
+      - FUNASR_DEVICE=${FUNASR_DEVICE:-cpu}         # cpu / cuda
+      - MODEL=${MODEL:-fun-asr-nano}         # 离线模型（见 .env.example）
+      - FUNASR_PORT=17767
+      # 功能开关
+      - PRELOAD_ALL=${PRELOAD_ALL:-true}         # 启动时预加载模型
+      - ENABLE_STREAMING=${ENABLE_STREAMING:-true} # 启用 WebSocket
+      - ENABLE_MCP=${ENABLE_MCP:-true}           # 启用 MCP
+      # Token 认证（留空不认证，生产环境建议设置）
+      - API_TOKEN=${API_TOKEN:-}
+      # 模型缓存
+      - MODELSCOPE_CACHE=/root/.cache/modelscope
+      - FUNASR_DATA_DIR=/app/data
+      # 并发（可选）
+      # - FUNASR_NCPU=4
+      # - FUNASR_WORKER_THREADS=8
+      # - FUNASR_CONCURRENT_ASR_OFFLINE=2
+      # - FUNASR_DATA_TTL_DAYS=${FUNASR_DATA_TTL_DAYS:-7}
+
+    # ── 持久化挂载 ───────────────────────────
+    volumes:
+      # 模型缓存：挂载到宿主机，容器删除后模型不丢失
+      - ./models:/root/.cache/modelscope:z
+      # 数据目录：任务结果、上传音频、声纹库
+      - ./data:/app/data:z
+      # Web UI：挂载后修改前端无需重新构建镜像
+      - ./web:/app/web:z
+      # 热词文件（可选，无需热词可删除此映射）
+      - ./hotwords.txt:/app/hotwords.txt:ro
+
+    # ── 共享内存（模型推理需要）───────────────
+    shm_size: "2gb"
+
+    # ── 重启策略 ─────────────────────────────
+    restart: unless-stopped
+
+    # ═══════════════════════════════════════════
+    #  GPU 模式（需 NVIDIA Container Toolkit）
+    #  1. .env 中设置 FUNASR_DEVICE=cuda
+    #  2. 取消下面 deploy 注释
+    #  3. docker compose up -d
+    # ═══════════════════════════════════════════
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
