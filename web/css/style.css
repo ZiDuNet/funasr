@@ -189,11 +189,38 @@ tr:hover td { background: #fafbfc; }
 @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(230,57,70,0.4); } 50% { box-shadow: 0 0 0 20px rgba(230,57,70,0); } }
 
 .live-text {
-  font-size: 17px; line-height: 2; min-height: 100px; padding: 16px;
-  background: #f8fafc; border-radius: 8px; border: 1px solid var(--border);
+  font-size: 18px; line-height: 2.2; min-height: 120px; padding: 20px;
+  background: #fafbfc; border-radius: 8px; border: 1px solid var(--border);
+  position: relative; overflow-y: auto; max-height: 400px;
 }
-.live-text .partial { color: #94a3b8; }
-.live-text .final { color: var(--text); }
+.live-text .partial {
+  color: #94a3b8; position: relative;
+}
+.live-text .partial::after {
+  content: '|'; color: var(--primary);
+  animation: blink 0.8s step-end infinite; margin-left: 2px;
+}
+@keyframes blink { 50% { opacity: 0; } }
+.live-text .final {
+  color: var(--text);
+  animation: fadeIn 0.4s ease-out;
+}
+.live-text .sentence {
+  animation: fadeIn 0.5s ease-out;
+}
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.live-text .speaking-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success); margin-right: 6px;
+  animation: pulse-dot 1s ease-in-out infinite;
+}
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.5; transform: scale(1.3); }
+}
 
 /* 响铃状态 */
 .status-bar {
