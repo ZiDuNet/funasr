@@ -7,6 +7,7 @@ from fastapi import APIRouter, UploadFile, File, Form, HTTPException
 from fastapi.responses import JSONResponse
 
 from server.core.task_manager import TaskManager
+from server.models.config import MODEL_NAME
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/tasks", tags=["异步任务"])
@@ -49,6 +50,7 @@ async def submit_task(
         raise HTTPException(status_code=400, detail="必须提供 file 或 url 参数")
 
     kwargs = dict(
+        model=MODEL_NAME,
         speaker_diarization=speaker_diarization,
         speaker_group=speaker_group or "",
         emotion=emotion,

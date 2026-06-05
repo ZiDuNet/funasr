@@ -40,7 +40,7 @@ class TranscriptionTask:
     file_path: str = ""
     audio_saved: str = ""      # 持久化的音频文件路径
     url: str = ""
-    model: str = "sensevoice"
+    model: str = ""  # 由提交时注入 MODEL_NAME
     speaker_diarization: bool = False
     speaker_group: str = ""
     emotion: bool = False
