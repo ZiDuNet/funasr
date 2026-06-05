@@ -11,11 +11,11 @@
 | **7 种接口** | OpenAI API / HTTP REST / WebSocket 流式 / MCP / 异步任务 / 声纹管理 / Web UI |
 | **7 个 ASR 模型** | 从 234M 到 1.7B，覆盖 5-52 语言，`.env` 一键切换 |
 | **6 个辅助模型** | 流式 + VAD + 标点 + 说话人分离 + 情感识别，全部魔搭下载 |
-| **单镜像通用** | 一个镜像 CPU/GPU 通用，`DEVICE=cpu` 或 `DEVICE=cuda` 切换 |
+| **单镜像通用** | 一个镜像 CPU/GPU 通用，`FUNASR_DEVICE=cpu` 或 `FUNASR_DEVICE=cuda` 切换 |
 | **高并发** | 线程池 + Semaphore 并发控制，7 个维度可独立调节 |
 | **多租户** | 声纹分组隔离，group 级别管理，互不可见 |
 | **持久化** | 任务 JSON 落盘 + 自动清理（可配 TTL） |
-| **国内加速** | apt/pip 阿里云镜像 + 模型走魔搭，全链路国内源 |
+| **国内加速** | Docker 基础镜像 + apt/pip 阿里云镜像 + 模型走魔搭，全链路国内源 |
 
 ---
 
@@ -82,9 +82,9 @@
 |------|------|------|----------|
 | `language` | `auto` | 语言提示 | 全部 |
 | `speaker_diarization` | `false` | 说话人分离 | SenseVoice / Paraformer |
-| `speaker_group` | — | 声纹组 ID（多租户） | 支持分离的模型 |
-| `emotion` | `false` | 情感标签（😊😢😠） | SenseVoice |
-| `events` | `false` | 音频事件（👏😂🎶） | SenseVoice |
+| `speaker_group` | — | 声纹组 ID，异步任务自动匹配替换 speaker_id 为注册名 | 支持分离的模型 |
+| `emotion` | `false` | 情感标签（HAPPY/SAD/ANGRY 等） | SenseVoice |
+| `events` | `false` | 音频事件标签（BGM/Applause/Laughter 等） | SenseVoice |
 | `punctuation` | `true` | 标点恢复 | 全部 |
 | `hotwords` | — | 热词 JSON | SenseVoice / Paraformer |
 
@@ -124,8 +124,8 @@ curl http://localhost:17767/health
 
 ```bash
 # 编辑 .env
-MODEL=qwen3-asr        # 切到 Qwen3-ASR
-DEVICE=cuda            # 大模型建议 GPU
+MODEL=qwen3-asr              # 切到 Qwen3-ASR
+FUNASR_DEVICE=cuda           # 大模型建议 GPU
 
 # 重启（自动下载新模型）
 docker compose restart
@@ -135,7 +135,7 @@ docker logs -f funasr  # 看下载进度
 ## GPU 模式
 
 ```bash
-# 1. .env 中 DEVICE=cuda
+# 1. .env 中 FUNASR_DEVICE=cuda
 # 2. docker-compose.yml 取消 deploy 注释
 # 3. 重启
 docker compose down && docker compose up -d
@@ -164,14 +164,14 @@ docker compose -f docker-compose.pull.yml up -d
 
 | 环境变量 | 默认值 | 说明 |
 |---------|--------|------|
-| `DEVICE` | `cpu` | `cpu` / `cuda`（同一镜像，无需重建） |
+| `FUNASR_DEVICE` | `cpu` | `cpu` / `cuda`（同一镜像，无需重建） |
 | `MODEL` | `fun-asr-nano` | ASR 模型选择（见上表） |
 | `PRELOAD_ALL` | `true` | 启动预加载所有模型 |
 | `ENABLE_STREAMING` | `true` | WebSocket 流式 |
 | `ENABLE_MCP` | `true` | MCP 协议 |
-| `DATA_TTL_DAYS` | `7` | 任务保留天数 |
+| `FUNASR_DATA_TTL_DAYS` | `7` | 任务保留天数 |
 | `API_TOKEN` | 空 | Token 认证（留空不认证） |
-| `PORT` | `17767` | 服务端口 |
+| `FUNASR_PORT` | `17767` | 服务端口 |
 
 ---
 
