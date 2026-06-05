@@ -59,19 +59,19 @@ def clean_text(text: str) -> str:
 
 
 def extract_emotion(text: str) -> str | None:
-    """从 SenseVoice 输出中提取情感标签"""
+    """从 SenseVoice 输出中提取情感标签，返回原始标签名（如 HAPPY、SAD）"""
     for tag, emoji in EMO_DICT.items():
-        if tag in text and emoji:
-            return emoji
+        if tag in text and emoji:  # emoji 非空表示有效情感（排除 NEUTRAL）
+            return tag.strip("<|").strip("|>")
     return None
 
 
 def extract_events(text: str) -> list[str]:
-    """从 SenseVoice 输出中提取事件标签"""
+    """从 SenseVoice 输出中提取事件标签，返回原始标签名列表（如 BGM、Applause）"""
     events = []
     for tag, emoji in EVENT_DICT.items():
-        if tag in text and emoji:
-            events.append(emoji)
+        if tag in text and emoji:  # emoji 非空表示有效事件（排除 Speech/Breath）
+            events.append(tag.strip("<|").strip("|>"))
     return events
 
 

@@ -56,8 +56,8 @@
   "language": "zh",
   "duration": 0.523,
   "model": "SenseVoiceSmall",
-  "emotion": "😊",
-  "events": ["👏"]
+  "emotion": "HAPPY",
+  "events": ["BGM", "Applause"]
 }
 ```
 
@@ -109,8 +109,8 @@
   "language": "zh",
   "duration": 0.523,
   "model": "SenseVoiceSmall",
-  "emotion": "😊",
-  "events": ["👏"],
+  "emotion": "HAPPY",
+  "events": ["BGM", "Applause"],
   "segments": [
     {"text": "大家好", "start": 0.43, "end": 1.52, "speaker_id": 0},
     {"text": "欢迎使用语音识别", "start": 1.68, "end": 3.91, "speaker_id": 1}
@@ -529,8 +529,8 @@ Streamable HTTP 协议，支持 Claude Desktop / Cursor / Claude Code 接入。
 | 字段 | 类型 | 来源 | 说明 |
 |------|------|------|------|
 | `text` | string | 始终 | 清洗后的纯文本（去除 `<\|...\|>` 标签） |
-| `emotion` | string | SenseVoice | 情感 emoji：😊😔😡😰🤢😮 |
-| `events` | string[] | SenseVoice | 事件 emoji：👏😂🎵😭🤧😷 |
+| `emotion` | string | SenseVoice | 情感标签名：HAPPY/SAD/ANGRY/FEARFUL/DISGUSTED/SURPRISED |
+| `events` | string[] | SenseVoice | 事件标签名列表：BGM/Applause/Laughter/Cry/Sneeze/Cough |
 | `segments[].text` | string | 说话人分离 | 清洗后的分段文本 |
 | `segments[].start` | number | 说话人分离 | 开始时间（毫秒） |
 | `segments[].end` | number | 说话人分离 | 结束时间（毫秒） |
