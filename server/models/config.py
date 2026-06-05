@@ -91,6 +91,7 @@ _PRESETS = {
             "trust_remote_code": True,
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
+            "punc_model": "ct-punc",
         },
         "dtype": "bf16",
     },
@@ -102,6 +103,7 @@ _PRESETS = {
             "trust_remote_code": True,
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
+            "punc_model": "ct-punc",
         },
         "dtype": "bf16",
     },
@@ -113,6 +115,7 @@ _PRESETS = {
             "model": "iic/Whisper-large-v3",
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
+            "punc_model": "ct-punc",
         },
     },
     "whisper-large-v3-turbo": {
@@ -122,6 +125,7 @@ _PRESETS = {
             "model": "iic/Whisper-large-v3-turbo",
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
+            "punc_model": "ct-punc",
         },
     },
 }

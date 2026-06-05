@@ -6,7 +6,7 @@ import logging
 from fastapi import WebSocket, WebSocketDisconnect
 
 from server.core.inference import (
-    infer_vad, infer_asr_online, infer_asr_offline_ws, infer_punc,
+    infer_vad, infer_asr_online, infer_asr_offline_ws,
 )
 from server.core.audio import pcm_duration_ms
 from server.core.postprocess import clean_text, extract_emotion, extract_events
@@ -158,15 +158,6 @@ def register_ws_endpoint(app):
                                             with_spk=state.get("speaker_diarization", False),
                                         )
                                         text = rec.get("text", "")
-
-                                        # 标点（SenseVoice 自带，但流式阶段也可能需要）
-                                        if text and state.get("punc_enabled", True):
-                                            try:
-                                                punc_res = await infer_punc(text, state["status_punc"])
-                                                if punc_res.get("text"):
-                                                    text = punc_res["text"]
-                                            except Exception:
-                                                pass
 
                                         if text:
                                             mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]

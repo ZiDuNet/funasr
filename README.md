@@ -34,17 +34,17 @@
 
 ### 模型详情
 
-| `MODEL=` | 模型 | ASR | 情感/事件 | 语言 | 大小 | GPU |
-|----------|------|:---:|:---:|------|------|-----|
-| `sensevoice` | SenseVoiceSmall | ✅ | ✅ | 中英日韩粤 | 234M | 可选 |
-| `paraformer` | Paraformer-zh | ✅ | ❌ | 中英 | 220M | 可选 |
-| **`fun-asr-nano`** ← 默认 | Fun-ASR-Nano | ✅ | ❌ | 31 语言 | 800M | 可选 |
-| `qwen3-asr` | Qwen3-ASR-1.7B | ✅ | ❌ | 52 语言 | 1.7B | ⚠️ 必须 |
-| `glm-asr-nano` | GLM-ASR-Nano-2512 | ✅ | ❌ | 17 语言 | 1.5B | ⚠️ 必须 |
-| `whisper-large-v3` | Whisper-large-v3 | ✅ | ❌ | 多语言 | 1550M | 可选 |
-| `whisper-large-v3-turbo` | Whisper-large-v3-turbo | ✅ | ❌ | 多语言 | 809M | 可选 |
+| `MODEL=` | 模型 | 自带能力 | 语言 | 大小 | GPU |
+|----------|------|------|------|------|-----|
+| `sensevoice` | SenseVoiceSmall | ASR + 标点 + 情感 + 事件 | 中英日韩粤 | 234M | 可选 |
+| `paraformer` | Paraformer-zh | ASR | 中英 | 220M | 可选 |
+| **`fun-asr-nano`** ← 默认 | Fun-ASR-Nano | ASR + 标点 | 31 语言 | 800M | 可选 |
+| `qwen3-asr` | Qwen3-ASR-1.7B | ASR | 52 语言 | 1.7B | ⚠️ 必须 |
+| `glm-asr-nano` | GLM-ASR-Nano-2512 | ASR | 17 语言 | 1.5B | ⚠️ 必须 |
+| `whisper-large-v3` | Whisper-large-v3 | ASR + 翻译 | 多语言 | 1550M | 可选 |
+| `whisper-large-v3-turbo` | Whisper-large-v3-turbo | ASR + 翻译 | 多语言 | 809M | 可选 |
 
-> 所有模型均支持**说话人分离**（通过 cam++ `spk_model`，Qwen3-ASR 需额外配置 forced_aligner）。**情感识别、事件检测**仅 SenseVoice 支持（模型原生输出标签）。
+> 所有模型均通过辅助模型**自由组合**扩展能力：`fsmn-vad`(VAD) + `ct-punc`(标点) + `cam++`(说话人分离) + `emotion2vec`(情感)。SenseVoice 独有内置**事件检测**（BGM/Applause/Laughter 等）。
 
 > 首次使用自动从魔搭下载，后续秒启动。`⚠️ 必须 GPU` 的模型需要 bf16 精度，仅 Ampere+ GPU 支持。
 
@@ -83,11 +83,11 @@
 | 参数 | 默认 | 说明 | 支持模型 |
 |------|------|------|----------|
 | `language` | `auto` | 语言提示 | 全部 |
-| `speaker_diarization` | `false` | 说话人分离 | SenseVoice / Paraformer |
-| `speaker_group` | — | 声纹组 ID，匹配后替换 speaker_id 为注册名（需同时启用 speaker_diarization） | 支持分离的模型 |
-| `emotion` | `false` | 情感标签（HAPPY/SAD/ANGRY 等） | SenseVoice |
-| `events` | `false` | 音频事件标签（BGM/Applause/Laughter 等） | SenseVoice |
-| `punctuation` | `true` | 标点恢复 | 全部 |
+| `speaker_diarization` | `false` | 说话人分离（cam++） | 全部 |
+| `speaker_group` | — | 声纹组 ID，匹配后替换 speaker_id 为注册名（需同时启用 speaker_diarization） | 全部 |
+| `emotion` | `false` | 情感标签 HAPPY/SAD/ANGRY 等（SenseVoice 内置 / 其他模型 emotion2vec） | 全部 |
+| `events` | `false` | 音频事件 BGM/Applause/Laughter 等 | SenseVoice |
+| `punctuation` | `true` | 标点恢复（SenseVoice/Fun-ASR-Nano 内置 / 其他模型 ct-punc） | 全部 |
 | `hotwords` | — | 热词 JSON | SenseVoice / Paraformer |
 
 ---
