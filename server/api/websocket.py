@@ -192,7 +192,8 @@ def register_ws_endpoint(app):
 
                                             resp = {
                                                 "mode": mode_label,
-                                                "text": clean_text(text),
+                                                "text": text,                    # 原始文本（含标签）
+                                                "clean_text": clean_text(text),  # 清洗后纯文本
                                                 "wav_name": state["wav_name"],
                                                 "is_final": True,
                                                 "timestamp": rec.get("timestamp"),
