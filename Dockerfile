@@ -26,10 +26,12 @@ RUN apt-get update \
 WORKDIR /app
 COPY requirements.txt .
 
-# 先装 CPU 版 PyTorch（体积 ~200MB，GPU 版 ~2GB）
-# GPU 部署时改为: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
+# PyTorch: 根据 .env 的 DEVICE 自动选 CPU 或 GPU 版本
+# DEVICE=cpu  → pip install --index-url .../cpu   (~200MB)
+# DEVICE=cuda → pip install --index-url .../cu118 (~2GB)
+ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 RUN pip install --upgrade pip \
-    && pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
+    && pip install --no-cache-dir torch torchaudio --index-url ${TORCH_INDEX} \
     && pip install --no-cache-dir -r requirements.txt
 
 # ── 应用代码 ────────────────────────────────────

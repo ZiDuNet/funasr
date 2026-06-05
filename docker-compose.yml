@@ -18,6 +18,10 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # DEVICE=cpu → 装 CPU 版 PyTorch (~200MB)
+        # DEVICE=cuda → 装 CUDA 版 PyTorch (~2GB)
+        TORCH_INDEX: ${TORCH_INDEX:-https://download.pytorch.org/whl/cpu}
     image: funasr-all-in-one:latest
     container_name: funasr
 
