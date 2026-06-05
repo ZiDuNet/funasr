@@ -14,7 +14,7 @@ from server.models.registry import ModelRegistry
 from server.models.config import DEFAULT_BATCH_SIZE_S
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["HTTP REST"])
 
 
 @router.post("/recognition")

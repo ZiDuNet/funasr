@@ -16,7 +16,7 @@ from server.models.registry import ModelRegistry
 from server.models.config import DEFAULT_BATCH_SIZE_S, MODEL_NAME
 
 logger = logging.getLogger(__name__)
-router = APIRouter()
+router = APIRouter(tags=["OpenAI 兼容"])
 
 
 @router.post("/v1/audio/transcriptions")
