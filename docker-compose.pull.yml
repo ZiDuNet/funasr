@@ -11,11 +11,7 @@
 
 services:
   funasr:
-    # 国内用户: 替换为阿里云容器镜像服务地址
-    # 1. 登录阿里云容器镜像服务: https://cr.console.aliyun.com
-    # 2. 创建命名空间和仓库，推送镜像后替换下方地址
-    # image: registry.cn-hangzhou.aliyuncs.com/<命名空间>/funasr-all-in-one:latest
-    image: funasr-all-in-one:latest
+    image: crpi-kdrx8sxe4fzlfrwj.cn-hangzhou.personal.cr.aliyuncs.com/wushuo98/funasr:latest
     container_name: funasr
 
     ports:
