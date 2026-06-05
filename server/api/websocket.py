@@ -37,7 +37,7 @@ def register_ws_endpoint(app):
             "vad_pre_idx": 0,                # VAD 预处理音频累计时长
             "status_asr": {"batch_size_s": 300},
             "status_asr_online": {"cache": {}, "is_final": False},
-            "status_vad": {"cache": {}, "is_final": False},
+            "status_vad": {"cache": {}, "is_final": False, "max_single_segment_time": 15000},
             "status_punc": {"cache": {}},
         }
 

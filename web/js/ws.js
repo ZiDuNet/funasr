@@ -8,7 +8,7 @@ class FunASRWebSocket {
     this.connected = false;
   }
 
-  connect(mode = '2pass', chunkSize = '5,10,5', chunkInterval = 10, hotwords = '', speakerDiarization = false) {
+  connect(mode = '2pass', chunkSize = '5,10,5', chunkInterval = 10, hotwords = '', speakerDiarization = false, emotion = false, events = false) {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = (location.protocol === 'file:' || location.origin === 'null') ? 'localhost:17767' : location.host;
     const token = localStorage.getItem('funasr_token') || '';
@@ -29,6 +29,8 @@ class FunASRWebSocket {
         audio_fs: 16000,
         itn: true,
         speaker_diarization: speakerDiarization,
+        emotion: emotion,
+        events: events,
       };
       if (hotwords) cfg.hotwords = hotwords;
       this.ws.send(JSON.stringify(cfg));

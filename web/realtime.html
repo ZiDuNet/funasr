@@ -101,7 +101,9 @@ async function startRecord() {
     await recorder.start();
     ws = new FunASRWebSocket(handleMsg, handleState);
     const useSpk = document.getElementById('spk').checked;
-    ws.connect(document.getElementById('mode').value, '5,10,5', 10, document.getElementById('hotwords').value, useSpk);
+    const useEmo = document.getElementById('emotion').checked;
+    const useEvt = document.getElementById('events').checked;
+    ws.connect(document.getElementById('mode').value, '5,10,5', 10, document.getElementById('hotwords').value, useSpk, useEmo, useEvt);
     recording = true; btn.classList.add('recording'); btn.textContent = '⏹';
     document.getElementById('statusText').textContent = '录音中... 请说话';
     partialText = ''; accumulatedText = ''; finalHistory = [];
