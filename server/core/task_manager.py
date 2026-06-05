@@ -306,7 +306,13 @@ class TaskManager:
                     task.result = _format_result(result_list[0], task)
                     # 声纹匹配：用 speaker_group 中的注册声纹替换 speaker_id
                     if task.speaker_group and task.speaker_diarization:
-                        await _match_voiceprints(task.result, pcm_bytes, task.speaker_group)
+                        from server.core.speaker_db import match_segments
+                        registry = ModelRegistry.get_instance()
+                        match_segments(
+                            task.result.get("segments", []),
+                            pcm_bytes, task.speaker_group,
+                            registry.get_aux("sv"),
+                        )
                 else:
                     task.result = {"text": ""}
 
@@ -392,51 +398,6 @@ class TaskManager:
             self._delete_files(task_id, task)
             return True
         return False
-
-
-async def _match_voiceprints(result: dict, pcm_bytes: bytes, group_id: str):
-    """用声纹数据库匹配 segments 中的 speaker_id，替换为注册名称"""
-    from server.core.speaker_db import match_speaker, extract_embedding
-
-    segments = result.get("segments", [])
-    if not segments:
-        return
-
-    registry = ModelRegistry.get_instance()
-    sv_model = registry.get_aux("sv")
-
-    # 按 speaker_id 分组，每组只提取一次声纹（同一说话人 embedding 相同）
-    seen_speakers: dict[int, str | None] = {}
-    bytes_per_ms = 32000 / 1000  # 16kHz, 16bit, mono
-
-    for seg in segments:
-        spk_id = seg.get("speaker_id")
-        if spk_id is None:
-            continue
-
-        if spk_id in seen_speakers:
-            if seen_speakers[spk_id]:
-                seg["speaker"] = seen_speakers[spk_id]
-            continue
-
-        # 截取该 segment 对应的 PCM 音频片段
-        start_byte = int(seg["start"] * bytes_per_ms)
-        end_byte = int(seg["end"] * bytes_per_ms)
-        seg_audio = pcm_bytes[start_byte:end_byte]
-
-        if len(seg_audio) < 1600:  # 音频太短（<100ms），跳过
-            seen_speakers[spk_id] = None
-            continue
-
-        try:
-            embedding = extract_embedding(sv_model, seg_audio)
-            matched = match_speaker(group_id, embedding) if embedding else None
-            seen_speakers[spk_id] = matched
-            if matched:
-                seg["speaker"] = matched
-        except Exception as e:
-            logger.warning(f"声纹匹配失败 speaker_id={spk_id}: {e}")
-            seen_speakers[spk_id] = None
 
 
 def _format_result(raw: dict, task: TranscriptionTask) -> dict:

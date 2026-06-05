@@ -82,7 +82,7 @@
 |------|------|------|----------|
 | `language` | `auto` | 语言提示 | 全部 |
 | `speaker_diarization` | `false` | 说话人分离 | SenseVoice / Paraformer |
-| `speaker_group` | — | 声纹组 ID，异步任务自动匹配替换 speaker_id 为注册名 | 支持分离的模型 |
+| `speaker_group` | — | 声纹组 ID，匹配后替换 speaker_id 为注册名（需同时启用 speaker_diarization） | 支持分离的模型 |
 | `emotion` | `false` | 情感标签（HAPPY/SAD/ANGRY 等） | SenseVoice |
 | `events` | `false` | 音频事件标签（BGM/Applause/Laughter 等） | SenseVoice |
 | `punctuation` | `true` | 标点恢复 | 全部 |
@@ -189,9 +189,16 @@ curl -H "Authorization: Bearer your-token" \
 curl http://localhost:17767/v1/audio/transcriptions \
   -F file=@meeting.wav -F speaker_diarization=true -F emotion=true
 
-# 声纹注册
+# 声纹注册 → 获得 group_id
 curl -X POST http://localhost:17767/api/speakers/register \
   -F audio=@ref.wav -F name=张三
+# → {"group_id": "grp_abc123", "name": "张三", "status": "registered"}
+
+# 转写 + 声纹匹配（speaker_id 自动替换为注册名）
+curl -X POST http://localhost:17767/v1/audio/transcriptions \
+  -F file=@meeting.wav \
+  -F speaker_diarization=true \
+  -F speaker_group=grp_abc123
 
 # 异步任务（URL）
 curl -X POST http://localhost:17767/api/tasks/submit \

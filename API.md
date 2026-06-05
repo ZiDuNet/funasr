@@ -86,16 +86,14 @@
 }
 ```
 
-**启用说话人分离 + 声纹组**（`speaker_diarization=true&speaker_group=grp_abc123`）：
-
-> 同步接口不做声纹匹配，仅透传 `speaker_group`。异步任务中会自动匹配并替换为注册名。
+**启用说话人分离 + 声纹匹配**（`speaker_diarization=true&speaker_group=grp_abc123`）：
 
 ```json
 {
   "text": "大家好，欢迎使用语音识别。",
   "speaker_group": "grp_abc123",
   "segments": [
-    {"text": "大家好", "start": 0.43, "end": 1.52, "speaker_id": 0},
+    {"text": "大家好", "start": 0.43, "end": 1.52, "speaker_id": 0, "speaker": "张三"},
     {"text": "欢迎使用语音识别", "start": 1.68, "end": 3.91, "speaker_id": 1}
   ]
 }
@@ -447,9 +445,10 @@ Subprotocol: `binary`
 | `chunk_size` | — | `[5,10,5]` 表示 600ms 显示窗口，300ms 前瞻 |
 | `chunk_interval` | `10` | 流式 ASR 触发间隔（帧数） |
 | `is_speaking` | — | `true`=说话中 / `false`=结束（触发最终结果） |
-| `speaker_diarization` | `false` | 说话人分离（仅 offline，online 不支持） |
-| `emotion` | `false` | 情感标签（仅 offline 结果） |
-| `events` | `false` | 事件标签（仅 offline 结果） |
+| `speaker_diarization` | `false` | 说话人分离（仅 offline） |
+| `speaker_group` | — | 声纹组 ID，匹配后替换 speaker_id 为注册名（仅 offline） |
+| `emotion` | `false` | 情感标签（仅 offline） |
+| `events` | `false` | 事件标签（仅 offline） |
 | `itn` | `true` | 逆文本归一化 |
 | `hotwords` | — | 热词 JSON |
 
@@ -458,9 +457,9 @@ Subprotocol: `binary`
 | 功能 | online | offline | 2pass |
 |------|--------|---------|-------|
 | 说话人分离 | ❌ | ✅ | ✅（offline 部分） |
+| 声纹匹配 | ❌ | ✅ | ✅（offline 部分） |
 | 情感识别 | ❌ | ✅ | ✅（offline 部分） |
 | 事件检测 | ❌ | ✅ | ✅（offline 部分） |
-| 声纹匹配 | ❌ | ❌ | ❌ |
 | 标点恢复 | ❌ | ✅ | ✅（offline 部分） |
 
 > online 阶段仅输出实时文本，说话人分离/情感/事件只在 VAD 断句后的 offline 修正结果中返回。
@@ -551,7 +550,7 @@ Streamable HTTP 协议，支持 Claude Desktop / Cursor / Claude Code 接入。
 | `emotion=true` | + `emotion` | 情感 emoji，如 `"😊"` |
 | `events=true` | + `events` | 事件 emoji 列表，如 `["👏","😂"]` |
 | `speaker_diarization=true` | + `segments[]` | 分段数组，每段含 `text`/`start`/`end`/`speaker_id` |
-| `speaker_group=xxx` | `segments[].speaker` | 异步任务自动匹配，将 `speaker_id` 替换为注册名 |
+| `speaker_group=xxx` | `segments[].speaker` | 匹配到的 segment 添加 `speaker` 字段（注册名），未匹配保留数字 `speaker_id` |
 
 **字段详情**：
 

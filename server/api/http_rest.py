@@ -9,6 +9,7 @@ from fastapi.responses import JSONResponse
 from server.core.inference import run_blocking, _generate_sync
 from server.core.audio import convert_to_pcm, save_temp_upload
 from server.core.postprocess import clean_text, extract_emotion, extract_events
+from server.core.speaker_db import match_segments
 from server.models.registry import ModelRegistry
 from server.models.config import DEFAULT_BATCH_SIZE_S
 
@@ -83,6 +84,12 @@ async def recognition(
                 if speaker_diarization and "spk" in seg:
                     s["speaker_id"] = seg["spk"]
                 sentences.append(s)
+
+            # 声纹匹配（需同时启用 speaker_diarization + speaker_group）
+            if speaker_diarization and speaker_group:
+                match_segments(sentences, pcm_bytes, speaker_group,
+                               registry.get_aux("sv"))
+
             resp["sentences"] = sentences
 
         return resp

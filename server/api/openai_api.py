@@ -11,6 +11,7 @@ from fastapi.responses import JSONResponse
 from server.core.inference import run_blocking, _generate_sync
 from server.core.audio import convert_to_pcm, save_temp_upload
 from server.core.postprocess import clean_text, extract_emotion, extract_events
+from server.core.speaker_db import match_segments
 from server.models.registry import ModelRegistry
 from server.models.config import DEFAULT_BATCH_SIZE_S, MODEL_NAME
 
@@ -92,13 +93,24 @@ async def transcribe(
             segments = []
             for seg in raw["sentence_info"]:
                 s = {
-                    "start": seg.get("start", 0) / 1000.0,
-                    "end": seg.get("end", 0) / 1000.0,
+                    "start": seg.get("start", 0),       # 毫秒，匹配后再转秒
+                    "end": seg.get("end", 0),
                     "text": clean_text(seg.get("text", "")),
                 }
                 if speaker_diarization and "spk" in seg:
                     s["speaker_id"] = seg["spk"]
                 segments.append(s)
+
+            # 声纹匹配（需同时启用 speaker_diarization + speaker_group）
+            if speaker_diarization and speaker_group:
+                match_segments(segments, pcm_bytes, speaker_group,
+                               registry.get_aux("sv"))
+
+            # 时间戳统一转秒（OpenAI 兼容格式）
+            for s in segments:
+                s["start"] = s["start"] / 1000.0
+                s["end"] = s["end"] / 1000.0
+
             resp["segments"] = segments
 
         return JSONResponse(resp)

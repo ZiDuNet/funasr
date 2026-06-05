@@ -124,3 +124,52 @@ def extract_embedding(model, audio_input) -> list | None:
     except Exception as e:
         logger.error(f"提取声纹失败: {e}")
         return None
+
+
+def match_segments(segments: list[dict], pcm_bytes: bytes,
+                   group_id: str, sv_model) -> None:
+    """对 segments 中的每个 speaker_id 提取声纹并匹配数据库
+
+    匹配到的添加 ``speaker`` 字段（注册名），未匹配的保留数字 ``speaker_id``。
+    按 speaker_id 分组缓存，同一说话人只提取一次声纹。
+
+    Args:
+        segments: 转写结果中的 segments 列表（会被原地修改）
+        pcm_bytes: 16kHz 16bit 单声道 PCM 原始音频
+        group_id: 声纹组 ID
+        sv_model: 声纹模型（AutoModel 实例）
+    """
+    if not segments:
+        return
+
+    seen_speakers: dict[int, str | None] = {}
+    bytes_per_ms = 32000 / 1000  # 16kHz, 16bit, mono
+
+    for seg in segments:
+        spk_id = seg.get("speaker_id")
+        if spk_id is None:
+            continue
+
+        if spk_id in seen_speakers:
+            if seen_speakers[spk_id]:
+                seg["speaker"] = seen_speakers[spk_id]
+            continue
+
+        # 截取该 segment 对应的 PCM 音频片段
+        start_byte = int(seg["start"] * bytes_per_ms)
+        end_byte = int(seg["end"] * bytes_per_ms)
+        seg_audio = pcm_bytes[start_byte:end_byte]
+
+        if len(seg_audio) < 1600:  # 音频太短（<100ms），跳过
+            seen_speakers[spk_id] = None
+            continue
+
+        try:
+            embedding = extract_embedding(sv_model, seg_audio)
+            matched = match_speaker(group_id, embedding) if embedding else None
+            seen_speakers[spk_id] = matched
+            if matched:
+                seg["speaker"] = matched
+        except Exception as e:
+            logger.warning(f"声纹匹配失败 speaker_id={spk_id}: {e}")
+            seen_speakers[spk_id] = None

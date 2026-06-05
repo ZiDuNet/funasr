@@ -10,6 +10,8 @@ from server.core.inference import (
 )
 from server.core.audio import pcm_duration_ms
 from server.core.postprocess import clean_text, extract_emotion, extract_events
+from server.core.speaker_db import match_segments
+from server.models.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +31,7 @@ def register_ws_endpoint(app):
             "wav_format": "pcm",
             "itn": True,
             "speaker_diarization": False,
+            "speaker_group": "",             # 声纹组 ID
             "emotion": False,                # 情感识别
             "events": False,                 # 事件检测
             "vad_pre_idx": 0,                # VAD 预处理音频累计时长
@@ -75,6 +78,8 @@ def register_ws_endpoint(app):
 
                         if "speaker_diarization" in cfg:
                             state["speaker_diarization"] = bool(cfg["speaker_diarization"])
+                        if "speaker_group" in cfg:
+                            state["speaker_group"] = str(cfg["speaker_group"])
                         if "emotion" in cfg:
                             state["emotion"] = bool(cfg["emotion"])
                         if "events" in cfg:
@@ -165,13 +170,29 @@ def register_ws_endpoint(app):
 
                                         if text:
                                             mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]
+                                            # 声纹匹配（需同时启用 speaker_diarization + speaker_group）
+                                            sentence_info = rec.get("sentence_info")
+                                            if (state.get("speaker_diarization")
+                                                    and state.get("speaker_group")
+                                                    and sentence_info):
+                                                # match_segments 使用 speaker_id 字段
+                                                for si in sentence_info:
+                                                    if "spk" in si:
+                                                        si["speaker_id"] = si["spk"]
+                                                registry = ModelRegistry.get_instance()
+                                                match_segments(
+                                                    sentence_info, audio_in,
+                                                    state["speaker_group"],
+                                                    registry.get_aux("sv"),
+                                                )
+
                                             resp = {
                                                 "mode": mode_label,
                                                 "text": clean_text(text),
                                                 "wav_name": state["wav_name"],
                                                 "is_final": True,
                                                 "timestamp": rec.get("timestamp"),
-                                                "sentence_info": rec.get("sentence_info"),
+                                                "sentence_info": sentence_info,
                                             }
                                             # 情感/事件仅在请求时返回
                                             if state.get("emotion"):
