@@ -25,7 +25,11 @@ RUN apt-get update \
 # ── Python 依赖 ─────────────────────────────────
 WORKDIR /app
 COPY requirements.txt .
+
+# 先装 CPU 版 PyTorch（体积 ~200MB，GPU 版 ~2GB）
+# GPU 部署时改为: pip install torch torchaudio --index-url https://download.pytorch.org/whl/cu118
 RUN pip install --upgrade pip \
+    && pip install --no-cache-dir torch torchaudio --index-url https://download.pytorch.org/whl/cpu \
     && pip install --no-cache-dir -r requirements.txt
 
 # ── 应用代码 ────────────────────────────────────
