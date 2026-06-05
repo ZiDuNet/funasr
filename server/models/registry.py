@@ -70,6 +70,16 @@ class ModelRegistry:
             logger.info("SenseVoiceSmall 加载完成")
         return self._models["sensevoice"]
 
+    def _load_sensevoice_spk(self) -> AutoModel:
+        """加载 SenseVoiceSmall + 说话人分离"""
+        if "sensevoice_spk" not in self._models:
+            logger.info("加载模型: SenseVoiceSmall + SPK ...")
+            cfg = MODEL_CONFIGS["sensevoice-spk"].copy()
+            cfg.update(self._base_kwargs())
+            self._models["sensevoice_spk"] = AutoModel(**cfg)
+            logger.info("SenseVoiceSmall + SPK 加载完成")
+        return self._models["sensevoice_spk"]
+
     def _load_streaming(self) -> AutoModel:
         """加载 paraformer-zh-streaming（流式 ASR）"""
         if "streaming" not in self._models:
@@ -135,6 +145,7 @@ class ModelRegistry:
     def get(self, name: str) -> AutoModel:
         loaders = {
             "sensevoice": self._load_sensevoice,
+            "sensevoice_spk": self._load_sensevoice_spk,
             "streaming": self._load_streaming,
             "vad": self._load_vad,
             "punc": self._load_punc,
@@ -152,6 +163,7 @@ class ModelRegistry:
         """启动时预加载所有模型"""
         logger.info(f"开始预加载所有模型 (device={self.device}) ...")
         self.get("sensevoice")
+        self.get("sensevoice_spk")   # 带说话人分离的版本
         self.get("streaming")
         self.get("vad")
         self.get("punc")

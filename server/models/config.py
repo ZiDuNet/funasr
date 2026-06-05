@@ -47,9 +47,17 @@ SENSEVOICE_MERGE_LENGTH_S = int(os.environ.get("FUNASR_MERGE_LENGTH_S", "15"))
 MODEL_CONFIGS = {
     "sensevoice": {
         # 识别 + 情感 + 事件，内置标点，5语言
+        # 注意: 不含 spk_model，如需说话人分离用 sensevoice-spk
         "model": "iic/SenseVoiceSmall",
         "vad_model": "fsmn-vad",
         "vad_kwargs": {"max_single_segment_time": 30000},
+    },
+    "sensevoice-spk": {
+        # SenseVoice + 说话人分离（官方确认：无需 punc_model 也能做）
+        "model": "iic/SenseVoiceSmall",
+        "vad_model": "fsmn-vad",
+        "vad_kwargs": {"max_single_segment_time": 30000},
+        "spk_model": "cam++",
     },
     "paraformer": {
         # 中文生产级识别，需要单独配标点模型

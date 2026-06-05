@@ -43,25 +43,15 @@ async def infer_offline(
     """
     registry = ModelRegistry.get_instance()
 
-    # 如果需要说话人分离，使用带 spk_model 的 AutoModel
-    if speaker_diarization:
-        model = registry.get("sensevoice")
-        # SenseVoiceSmall 配合 spk_model 需要在初始化时传
-        # 这里使用独立的 pipeline：先 ASR，再 SV
-        # 注意：如果 registry 中的 sensevoice 没配 spk_model，
-        # 我们直接用它的 sentence_info + spk 字段（需要重新加载带 spk 的版本）
-        result_list = await run_blocking(
-            _generate_sync, model, audio_input,
-            batch_size_s=60, **generate_kwargs,
-            sem=registry.sem_asr_offline,
-        )
-    else:
-        model = registry.get("sensevoice")
-        result_list = await run_blocking(
-            _generate_sync, model, audio_input,
-            batch_size_s=60, **generate_kwargs,
-            sem=registry.sem_asr_offline,
-        )
+    # 说话人分离：加载带 spk_model 的版本
+    # 官方确认：SenseVoice + cam++ 无需额外 punc_model 就能做
+    model_name = "sensevoice_spk" if speaker_diarization else "sensevoice"
+    model = registry.get(model_name)
+    result_list = await run_blocking(
+        _generate_sync, model, audio_input,
+        batch_size_s=300, **generate_kwargs,
+        sem=registry.sem_asr_offline,
+    )
 
     return result_list[0] if result_list else {}
 
