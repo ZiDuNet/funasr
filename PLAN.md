@@ -7,7 +7,7 @@
 ## 架构总览
 
 ```
-单容器 funasr-all-in-one (端口 8000)
+单容器 funasr-all-in-one (端口 17767)
 │
 ├── 🌐 Web UI (/)
 │   ├── 文件转写（上传 + URL）
@@ -58,14 +58,13 @@
 
 | 参数 | 类型 | 默认 | 说明 |
 |------|------|------|------|
-| `model` | string | sensevoice | 模型选择 |
-| `speaker_diarization` | bool | false | 启用说话人分离（需加载 cam++） |
-| `emotion` | bool | false | 返回情感标签（SenseVoice 自带） |
-| `events` | bool | false | 返回音频事件标签（SenseVoice 自带） |
+| `speaker_diarization` | bool | false | 启用说话人分离 |
+| `speaker_group` | string | — | 声纹组 ID，异步任务自动匹配替换 speaker_id |
+| `emotion` | bool | false | 情感标签（HAPPY/SAD/ANGRY 等） |
+| `events` | bool | false | 音频事件标签（BGM/Applause/Laughter 等） |
 | `punctuation` | bool | true | 标点恢复 |
 | `language` | string | auto | 语言提示 zh/en/ja/ko/yue |
-| `response_format` | string | json | json / verbose_json |
-| `hotwords` | string | - | 热词 JSON 字符串 |
+| `hotwords` | string | — | 热词 JSON 字符串 |
 
 **推理时动态控制**：
 - `speaker_diarization=false` → 跳过声纹模型，省 GPU 算力
@@ -307,11 +306,11 @@ while True:
 ## 验证方式
 
 1. `docker compose up --build`
-2. 浏览器打开 `http://localhost:8000` → Web UI
-3. `curl http://localhost:8000/health` → 健康检查
-4. OpenAI 同步：`curl http://localhost:8000/v1/audio/transcriptions -F file=@test.wav -F model=sensevoice`
-5. HTTP REST：`curl http://localhost:8000/recognition -F audio=@test.wav`
-6. 异步任务：`curl http://localhost:8000/api/tasks/submit -F file=@meeting.mp3`
-7. 查询任务：`curl http://localhost:8000/api/tasks/{task_id}`
-8. WebSocket：用客户端连接 `ws://localhost:8000/ws`
-9. MCP：MCP Inspector 连接 `http://localhost:8000/mcp`
+2. 浏览器打开 `http://localhost:17767` → Web UI
+3. `curl http://localhost:17767/health` → 健康检查
+4. OpenAI 同步：`curl http://localhost:17767/v1/audio/transcriptions -F file=@test.wav -F model=sensevoice`
+5. HTTP REST：`curl http://localhost:17767/recognition -F audio=@test.wav`
+6. 异步任务：`curl http://localhost:17767/api/tasks/submit -F file=@meeting.mp3`
+7. 查询任务：`curl http://localhost:17767/api/tasks/{task_id}`
+8. WebSocket：用客户端连接 `ws://localhost:17767/ws`
+9. MCP：MCP Inspector 连接 `http://localhost:17767/mcp`

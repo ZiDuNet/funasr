@@ -412,6 +412,14 @@ print(result.text)
 
 Subprotocol: `binary`
 
+**三种模式**:
+
+| 模式 | 说明 | 延迟 | 精度 |
+|------|------|------|------|
+| `online` | 纯流式，逐帧实时输出 | ~300ms | 一般 |
+| `offline` | VAD 检测断句后用离线模型识别 | 1-3s | 高 |
+| `2pass` | online 实时出稿 + offline 事后修正（推荐） | 兼顾 | 最高 |
+
 **流程**: 发送 JSON 配置 → 发送二进制 PCM → 接收实时结果
 
 **配置消息**:
@@ -427,37 +435,58 @@ Subprotocol: `binary`
   "audio_fs": 16000,
   "itn": true,
   "speaker_diarization": false,
+  "emotion": false,
+  "events": false,
   "hotwords": "{\"达摩院\":20}"
 }
 ```
 
-| 参数 | 说明 |
-|------|------|
-| `mode` | `online`(纯实时) / `offline`(离线) / `2pass`(实时+离线修正) |
-| `chunk_size` | `[5,10,5]` 表示 600ms 显示窗口，300ms 前瞻 |
-| `is_speaking` | `true`=说话中 / `false`=结束（触发最终结果） |
-| `speaker_diarization` | 启用说话人分离 |
-| `itn` | 逆文本归一化 |
+| 参数 | 默认 | 说明 |
+|------|------|------|
+| `mode` | `2pass` | `online` / `offline` / `2pass` |
+| `chunk_size` | — | `[5,10,5]` 表示 600ms 显示窗口，300ms 前瞻 |
+| `chunk_interval` | `10` | 流式 ASR 触发间隔（帧数） |
+| `is_speaking` | — | `true`=说话中 / `false`=结束（触发最终结果） |
+| `speaker_diarization` | `false` | 说话人分离（仅 offline，online 不支持） |
+| `emotion` | `false` | 情感标签（仅 offline 结果） |
+| `events` | `false` | 事件标签（仅 offline 结果） |
+| `itn` | `true` | 逆文本归一化 |
+| `hotwords` | — | 热词 JSON |
+
+**功能支持矩阵**:
+
+| 功能 | online | offline | 2pass |
+|------|--------|---------|-------|
+| 说话人分离 | ❌ | ✅ | ✅（offline 部分） |
+| 情感识别 | ❌ | ✅ | ✅（offline 部分） |
+| 事件检测 | ❌ | ✅ | ✅（offline 部分） |
+| 声纹匹配 | ❌ | ❌ | ❌ |
+| 标点恢复 | ❌ | ✅ | ✅（offline 部分） |
+
+> online 阶段仅输出实时文本，说话人分离/情感/事件只在 VAD 断句后的 offline 修正结果中返回。
 
 **服务端消息**:
 
 ```json
-// 实时中间结果
+// online 实时中间结果
 {"mode": "2pass-online", "text": "大家", "wav_name": "microphone", "is_final": false}
 
-// 离线修正结果（VAD 断句后）
+// offline 修正结果（仅含请求的字段）
 {
   "mode": "2pass-offline",
   "text": "大家好，欢迎使用语音识别。",
-  "clean_text": "大家好，欢迎使用语音识别。",
   "wav_name": "microphone",
   "is_final": true,
+  "emotion": "HAPPY",
+  "events": ["Applause"],
   "timestamp": [[430, 670], [670, 810]],
   "sentence_info": [
     {"start": 430, "end": 1520, "text": "大家好", "spk": 0}
   ]
 }
 ```
+
+> 结束信号：发送 `{"is_speaking": false}` 触发最后一次 offline 识别并返回最终结果。
 
 ---
 

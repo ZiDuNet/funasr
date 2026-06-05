@@ -1,4 +1,4 @@
-"""WebSocket 流式识别 — 支持 offline / online / 2pass + 说话人分离 + 情感"""
+"""WebSocket 流式识别 — 支持 offline / online / 2pass + 说话人分离 + 情感 + 事件"""
 
 import json
 import logging
@@ -9,7 +9,7 @@ from server.core.inference import (
     infer_vad, infer_asr_online, infer_asr_offline_ws, infer_punc,
 )
 from server.core.audio import pcm_duration_ms
-from server.core.postprocess import clean_text
+from server.core.postprocess import clean_text, extract_emotion, extract_events
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,8 @@ def register_ws_endpoint(app):
             "wav_format": "pcm",
             "itn": True,
             "speaker_diarization": False,
+            "emotion": False,                # 情感识别
+            "events": False,                 # 事件检测
             "vad_pre_idx": 0,                # VAD 预处理音频累计时长
             "status_asr": {"batch_size_s": 300},
             "status_asr_online": {"cache": {}, "is_final": False},
@@ -71,9 +73,13 @@ def register_ws_endpoint(app):
                             state["status_asr"]["hotword"] = cfg["hotwords"]
                             state["status_asr_online"]["hotword"] = cfg["hotwords"]
 
-                        if "speaker_diarization" in cfg:             # ← 新增
+                        if "speaker_diarization" in cfg:
                             state["speaker_diarization"] = bool(cfg["speaker_diarization"])
-                        if "itn" in cfg:                              # ← 新增
+                        if "emotion" in cfg:
+                            state["emotion"] = bool(cfg["emotion"])
+                        if "events" in cfg:
+                            state["events"] = bool(cfg["events"])
+                        if "itn" in cfg:
                             state["itn"] = bool(cfg["itn"])
 
                     elif "bytes" in msg:
@@ -161,13 +167,21 @@ def register_ws_endpoint(app):
                                             mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]
                                             resp = {
                                                 "mode": mode_label,
-                                                "text": text,          # ← 含情感/事件原始标签
-                                                "clean_text": clean_text(text),  # ← 新增：干净文本
+                                                "text": clean_text(text),
                                                 "wav_name": state["wav_name"],
                                                 "is_final": True,
                                                 "timestamp": rec.get("timestamp"),
                                                 "sentence_info": rec.get("sentence_info"),
                                             }
+                                            # 情感/事件仅在请求时返回
+                                            if state.get("emotion"):
+                                                emo = extract_emotion(text)
+                                                if emo:
+                                                    resp["emotion"] = emo
+                                            if state.get("events"):
+                                                evt = extract_events(text)
+                                                if evt:
+                                                    resp["events"] = evt
                                             await websocket.send_json(resp)
                                     except Exception as e:
                                         logger.error(f"离线 ASR 错误: {e}")
