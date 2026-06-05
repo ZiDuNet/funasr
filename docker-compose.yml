@@ -32,7 +32,7 @@ services:
     environment:
       # 核心
       - FUNASR_DEVICE=${FUNASR_DEVICE:-cpu}         # cpu / cuda
-      - MODEL=${MODEL:-fun-asr-nano}         # 离线模型（见 .env.example）
+      - MODEL=${MODEL:-sensevoice}           # 离线模型（见 .env.example），CPU 推荐 sensevoice
       - FUNASR_PORT=17767
       # 功能开关
       - PRELOAD_ALL=${PRELOAD_ALL:-true}         # 启动时预加载模型
