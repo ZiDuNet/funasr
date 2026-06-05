@@ -19,14 +19,23 @@ services:
       - "${PORT:-8000}:8000"
     environment:
       - FUNASR_DEVICE=${DEVICE:-cpu}
+      - MODEL=${MODEL:-sensevoice}
+      - PRELOAD_ALL=${PRELOAD_ALL:-true}
+      - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
+      - ENABLE_MCP=${ENABLE_MCP:-true}
       - FUNASR_PORT=8000
       - FUNASR_NCPU=${NCPU:-4}
       - FUNASR_WORKER_THREADS=${WORKER_THREADS:-8}
-      - FUNASR_CONCURRENT_VAD=${CONCURRENT_VAD:-4}
-      - FUNASR_CONCURRENT_ASR_ONLINE=${CONCURRENT_ASR_ONLINE:-4}
-      - FUNASR_CONCURRENT_ASR_OFFLINE=${CONCURRENT_ASR_OFFLINE:-2}
       - FUNASR_DATA_TTL_DAYS=${DATA_TTL_DAYS:-7}
       - MODELSCOPE_CACHE=/root/.cache/modelscope
+
+      # 可选：覆盖并发控制
+      # - FUNASR_CONCURRENT_VAD=4
+      # - FUNASR_CONCURRENT_ASR_ONLINE=4
+      # - FUNASR_CONCURRENT_ASR_OFFLINE=2
+      # - FUNASR_CONCURRENT_PUNC=1
+      # - FUNASR_CONCURRENT_SV=1
+      # - FUNASR_CONCURRENT_EMOTION=1
     volumes:
       - ./models:/root/.cache/modelscope   # 模型自动下载后持久化
       - ./data:/app/data                    # 任务结果 + 音频文件 + 声纹库

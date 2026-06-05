@@ -242,8 +242,7 @@ class TaskManager:
                     gen_kwargs["language"] = task.language
 
                 registry = ModelRegistry.get_instance()
-                model_name = "sensevoice_spk" if task.speaker_diarization else task.model
-                model = registry.get(model_name)
+                model = registry.get(with_spk=task.speaker_diarization)
                 gen_kwargs["merge_vad"] = True
                 gen_kwargs["merge_length_s"] = 15
                 gen_kwargs["batch_size_threshold_s"] = 60

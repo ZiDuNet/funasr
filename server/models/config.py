@@ -1,27 +1,35 @@
 """FunASR 模型配置
 
-模型使用 ModelScope ID，首次运行自动下载到 MODELSCOPE_CACHE 目录。
-挂载 ./models:/root/.cache/modelscope 即可持久化，无需手动下载脚本。
+通过 .env 的 MODEL=xxx 选择离线模型，API 不暴露模型切换。
+模型首次运行时自动下载，挂载 ./models 持久化缓存。
 """
 
 import os
+import logging
 
-# ── 设备配置 ────────────────────────────────
+logger = logging.getLogger(__name__)
+
+# ── 设备 ─────────────────────────────────────
 DEVICE = os.environ.get("FUNASR_DEVICE", "cpu")
 NGPU = 1 if DEVICE.startswith("cuda") else 0
 NCPU = int(os.environ.get("FUNASR_NCPU", "4"))
 
-# ── 模型缓存 ────────────────────────────────
-# 挂载此目录即可持久化自动下载的模型
-MODEL_CACHE = os.environ.get("MODELSCOPE_CACHE", os.path.expanduser("~/.cache/modelscope"))
+# ── 模型选择（配置文件中切换，API 不暴露）────────
+MODEL = os.environ.get("MODEL", "sensevoice")
 
-# ── 数据目录（任务结果、音频文件、声纹库）─────
+# ── 功能开关 ─────────────────────────────────
+PRELOAD_ALL = os.environ.get("PRELOAD_ALL", "true").lower() == "true"
+ENABLE_STREAMING = os.environ.get("ENABLE_STREAMING", "true").lower() == "true"
+ENABLE_MCP = os.environ.get("ENABLE_MCP", "true").lower() == "true"
+
+# ── 目录 ────────────────────────────────────
+MODEL_CACHE = os.environ.get("MODELSCOPE_CACHE", os.path.expanduser("~/.cache/modelscope"))
 DATA_DIR = os.environ.get("FUNASR_DATA_DIR", "/app/data")
 TASKS_DIR = os.path.join(DATA_DIR, "tasks")
 AUDIO_DIR = os.path.join(DATA_DIR, "audio")
 SPEAKERS_DIR = os.path.join(DATA_DIR, "speakers")
 
-# ── 并发控制 ────────────────────────────────
+# ── 并发 ────────────────────────────────────
 WORKER_THREADS = int(os.environ.get("FUNASR_WORKER_THREADS", "8"))
 CONCURRENT_VAD = int(os.environ.get("FUNASR_CONCURRENT_VAD", "4"))
 CONCURRENT_ASR_ONLINE = int(os.environ.get("FUNASR_CONCURRENT_ASR_ONLINE", "4"))
@@ -30,73 +38,68 @@ CONCURRENT_PUNC = int(os.environ.get("FUNASR_CONCURRENT_PUNC", "1"))
 CONCURRENT_SV = int(os.environ.get("FUNASR_CONCURRENT_SV", "1"))
 CONCURRENT_EMOTION = int(os.environ.get("FUNASR_CONCURRENT_EMOTION", "1"))
 
-# ── 异步任务 ────────────────────────────────
+# ── 任务 ────────────────────────────────────
 ASYNC_THRESHOLD_SEC = int(os.environ.get("FUNASR_ASYNC_THRESHOLD", "60"))
 MAX_TASKS = int(os.environ.get("FUNASR_MAX_TASKS", "1000"))
-
-# ── 自动清理（天数，0 表示不清理）─────────────
 DATA_TTL_DAYS = int(os.environ.get("FUNASR_DATA_TTL_DAYS", "7"))
 
-# ── 推理默认参数（官方推荐，防 OOM）────────────
+# ── 推理 ────────────────────────────────────
 DEFAULT_BATCH_SIZE_S = int(os.environ.get("FUNASR_BATCH_SIZE_S", "300"))
 DEFAULT_BATCH_THRESHOLD_S = int(os.environ.get("FUNASR_BATCH_THRESHOLD_S", "60"))
-# SenseVoice 长句合并参数（提升说话人分离效果）
-SENSEVOICE_MERGE_LENGTH_S = int(os.environ.get("FUNASR_MERGE_LENGTH_S", "15"))
 
-# ── 模型定义（ModelScope ID，自动下载）─────────
-MODEL_CONFIGS = {
+# ═══════════════════════════════════════════════════
+#  离线模型预设（部署时 .env 里选一个）
+# ═══════════════════════════════════════════════════
+
+_PRESETS = {
     "sensevoice": {
-        # 识别 + 情感 + 事件，内置标点，5语言
-        # 注意: 不含 spk_model，如需说话人分离用 sensevoice-spk
-        "model": "iic/SenseVoiceSmall",
-        "vad_model": "fsmn-vad",
-        "vad_kwargs": {"max_single_segment_time": 30000},
-    },
-    "sensevoice-spk": {
-        # SenseVoice + 说话人分离（官方确认：无需 punc_model 也能做）
-        "model": "iic/SenseVoiceSmall",
-        "vad_model": "fsmn-vad",
-        "vad_kwargs": {"max_single_segment_time": 30000},
-        "spk_model": "cam++",
+        "name": "SenseVoiceSmall",
+        "config": {
+            "model": "iic/SenseVoiceSmall",
+            "vad_model": "fsmn-vad",
+            "vad_kwargs": {"max_single_segment_time": 30000},
+        },
     },
     "paraformer": {
-        # 中文生产级识别，需要单独配标点模型
-        "model": "paraformer-zh",
-        "vad_model": "fsmn-vad",
-        "punc_model": "ct-punc",
+        "name": "Paraformer-zh",
+        "config": {
+            "model": "paraformer-zh",
+            "vad_model": "fsmn-vad",
+            "punc_model": "ct-punc",
+        },
     },
     "fun-asr-nano": {
-        # 31 种语言，自带标点，LLM-based
-        "model": "FunAudioLLM/Fun-ASR-Nano-2512",
-        "hub": "hf",
-        "trust_remote_code": True,
-        "vad_model": "fsmn-vad",
-        "vad_kwargs": {"max_single_segment_time": 30000},
+        "name": "Fun-ASR-Nano",
+        "config": {
+            "model": "FunAudioLLM/Fun-ASR-Nano-2512",  # 魔搭 ID，无需 hub="hf"
+            "trust_remote_code": True,
+            "vad_model": "fsmn-vad",
+            "vad_kwargs": {"max_single_segment_time": 30000},
+        },
     },
 }
 
-# 独立情感识别模型（比 SenseVoice 自带更准）
-EMOTION_MODEL = {
-    "model": "iic/emotion2vec_plus_large",
-}
+# 根据 MODEL 环境变量选择
+if MODEL in _PRESETS:
+    ASR_CONFIG = _PRESETS[MODEL]["config"]
+    ASR_CONFIG_WITH_SPK = {**ASR_CONFIG, "spk_model": "cam++"}
+    MODEL_NAME = _PRESETS[MODEL]["name"]
+    logger.info(f"离线模型: {MODEL_NAME}")
+else:
+    # 兜底：直接使用 MODEL 作为模型 ID
+    ASR_CONFIG = {"model": MODEL}
+    ASR_CONFIG_WITH_SPK = {"model": MODEL, "spk_model": "cam++"}
+    MODEL_NAME = MODEL
+    logger.info(f"离线模型（自定义）: {MODEL}")
 
-# WebSocket 流式模型
-STREAMING_MODEL = {
+# ── 流式模型 ─────────────────────────────────
+STREAMING_CONFIG = {
     "model": "iic/speech_paraformer-large_asr_nat-zh-cn-16k-common-vocab8404-online",
     "model_revision": "v2.0.4",
 }
 
-# 独立模型（WebSocket 手动 pipeline 使用）
-VAD_MODEL = {
-    "model": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch",
-    "model_revision": "v2.0.4",
-}
-
-PUNC_MODEL = {
-    "model": "iic/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727",
-    "model_revision": "v2.0.4",
-}
-
-SV_MODEL = {
-    "model": "iic/speech_campplus_sv_zh-cn_16k-common",
-}
+# ── 辅助模型 ─────────────────────────────────
+VAD_CONFIG = {"model": "iic/speech_fsmn_vad_zh-cn-16k-common-pytorch", "model_revision": "v2.0.4"}
+PUNC_CONFIG = {"model": "iic/punc_ct-transformer_zh-cn-common-vad_realtime-vocab272727", "model_revision": "v2.0.4"}
+SV_CONFIG = {"model": "iic/speech_campplus_sv_zh-cn_16k-common"}
+EMOTION_CONFIG = {"model": "iic/emotion2vec_plus_large"}
