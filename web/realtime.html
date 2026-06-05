@@ -132,20 +132,24 @@ function handleMsg(data) {
 
   if (data.mode === '2pass-online' || data.mode === 'online') {
     partialText = data.text || '';
-    // 累积正文 + 实时临时文本 + 说话指示灯
     const dot = '<span class="speaking-dot"></span>';
-    el.innerHTML = `<div class="final">${accumulatedText}</div><div class="partial">${dot}${partialText}</div>`;
+    const partialHtml = partialText ? `<div class="turn"><span class="spk-label">...</span><span class="partial">${dot}${partialText}</span></div>` : '';
+    el.innerHTML = finalHistory.map(h => h.html).join('') + partialHtml;
   }
   if (data.mode === '2pass-offline' || (data.mode === 'offline' && data.is_final)) {
     const displayText = data.clean_text || data.text || '';
     if (displayText) {
       accumulatedText += displayText;
-      const spkInfo = data.sentence_info?.map(s => `说话人${s.spk ?? '?'}`).filter((v,i,a) => a.indexOf(v)===i).join(', ');
-      const label = [data.emotion, spkInfo].filter(Boolean).join(' | ');
-      finalHistory.push(`<span class="sentence">${displayText}</span>` + (label ? ` <span style="font-size:12px;color:#999">[${label}]</span>` : ''));
+      // 说话人标签
+      const spkId = data.sentence_info?.[0]?.spk;
+      const spkLabel = spkId !== undefined ? `说话人${spkId}` : '...';
+      const spkColor = spkId !== undefined ? `spk-${spkId % 5}` : '';
+      const emo = data.emotion ? ` · ${data.emotion}` : '';
+      const html = `<div class="turn"><span class="spk-label ${spkColor}">${spkLabel}${emo}</span><span class="final">${displayText}</span></div>`;
+      finalHistory.push({ text: displayText, html, spk: spkLabel, emo: data.emotion });
     }
     partialText = '';
-    el.innerHTML = `<div class="final">${accumulatedText}</div>`;
+    el.innerHTML = finalHistory.map(h => h.html).join('');
     document.getElementById('histCount').textContent = `(${finalHistory.length} 句)`;
     updateHistory();
   }
