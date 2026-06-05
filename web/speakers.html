@@ -4,6 +4,33 @@
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FunASR - 声纹管理</title>
 <link rel="stylesheet" href="css/style.css">
+<style>
+  .record-section { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+  .record-btn-sm {
+    width: 48px; height: 48px; border-radius: 50%; border: 2px solid var(--danger);
+    background: #fff; color: var(--danger); font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center; flex-shrink: 0;
+  }
+  .record-btn-sm.recording {
+    background: var(--danger); color: #fff; animation: pulse 1.2s infinite;
+  }
+  @keyframes pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(220,53,69,0.4); }
+    50% { box-shadow: 0 0 0 12px rgba(220,53,69,0); }
+  }
+  .record-timer { font-family: monospace; font-size: 16px; min-width: 50px; }
+  .record-hint { font-size: 13px; color: var(--text-secondary); }
+  .audio-source-tabs { display: flex; gap: 0; margin-bottom: 12px; }
+  .audio-source-tabs button {
+    padding: 8px 20px; border: 1px solid var(--border); background: #f8f9fa;
+    cursor: pointer; font-size: 14px;
+  }
+  .audio-source-tabs button:first-child { border-radius: 6px 0 0 6px; }
+  .audio-source-tabs button:last-child { border-radius: 0 6px 6px 0; }
+  .audio-source-tabs button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+  .audio-panel { display: none; }
+  .audio-panel.active { display: block; }
+</style>
 </head>
 <body>
 <nav class="nav">
@@ -21,15 +48,37 @@
   <!-- 注册 -->
   <div class="card">
     <h2 style="margin-top:0">注册新说话人</h2>
-    <div class="upload-zone" id="spkDropZone" style="padding:24px">
-      <input type="file" id="spkAudio" accept="audio/*">
-      <div class="text" id="spkAudioLabel">点击选择参考音频（5-30秒，单人说话，背景安静）</div>
+
+    <!-- 音频来源切换 -->
+    <div class="audio-source-tabs">
+      <button id="tabUpload" class="active" onclick="switchSource('upload')">📁 上传文件</button>
+      <button id="tabRecord" onclick="switchSource('record')">🎤 在线录制</button>
     </div>
+
+    <!-- 上传模式 -->
+    <div id="panelUpload" class="audio-panel active">
+      <div class="upload-zone" id="spkDropZone" style="padding:24px">
+        <input type="file" id="spkAudio" accept="audio/*">
+        <div class="text" id="spkAudioLabel">点击选择参考音频（5-30秒，单人说话，背景安静）</div>
+      </div>
+    </div>
+
+    <!-- 录制模式 -->
+    <div id="panelRecord" class="audio-panel">
+      <div class="record-section">
+        <button class="record-btn-sm" id="recBtn" onclick="toggleRecording()">🎤</button>
+        <div>
+          <div class="record-timer" id="recTimer">00:00</div>
+          <div class="record-hint" id="recHint">点击开始录制，建议 5-30 秒</div>
+        </div>
+      </div>
+    </div>
+
     <div class="params" style="margin-top:12px">
       <div class="param"><label>说话人名字</label><input type="text" id="spkName" placeholder="如：张三"></div>
       <div class="param"><label>group_id（留空自动新建）</label><input type="text" id="spkGroup" placeholder="自动生成新 group"></div>
     </div>
-    <button class="btn btn-primary" onclick="registerSpeaker()">📝 注册声纹</button>
+    <button class="btn btn-primary" id="regBtn" onclick="registerSpeaker()">📝 注册声纹</button>
   </div>
 
   <!-- 列表 -->
@@ -47,27 +96,145 @@
 
 <script src="js/api.js"></script>
 <script>
+// ── 音频来源切换 ──
+let sourceMode = 'upload';
+function switchSource(mode) {
+  sourceMode = mode;
+  document.getElementById('tabUpload').classList.toggle('active', mode === 'upload');
+  document.getElementById('tabRecord').classList.toggle('active', mode === 'record');
+  document.getElementById('panelUpload').classList.toggle('active', mode === 'upload');
+  document.getElementById('panelRecord').classList.toggle('active', mode === 'record');
+}
+
+// ── 文件上传 ──
 const spkDrop = document.getElementById('spkDropZone');
 const spkInput = document.getElementById('spkAudio');
+let uploadedFile = null;
 spkDrop.onclick = () => spkInput.click();
 spkDrop.ondragover = e => { e.preventDefault(); spkDrop.classList.add('dragover'); };
 spkDrop.ondragleave = () => spkDrop.classList.remove('dragover');
-spkDrop.ondrop = e => { e.preventDefault(); spkDrop.classList.remove('dragover'); if(e.dataTransfer.files[0]){ spkInput.files=e.dataTransfer.files; document.getElementById('spkAudioLabel').textContent='已选择: '+e.dataTransfer.files[0].name; }};
-spkInput.onchange = e => { if(e.target.files[0]) document.getElementById('spkAudioLabel').textContent='已选择: '+e.target.files[0].name; };
+spkDrop.ondrop = e => { e.preventDefault(); spkDrop.classList.remove('dragover'); if(e.dataTransfer.files[0]){ spkInput.files = e.dataTransfer.files; uploadedFile = e.dataTransfer.files[0]; document.getElementById('spkAudioLabel').textContent = '已选择: ' + e.dataTransfer.files[0].name; }};
+spkInput.onchange = e => { if(e.target.files[0]){ uploadedFile = e.target.files[0]; document.getElementById('spkAudioLabel').textContent = '已选择: ' + e.target.files[0].name; }};
 
+// ── 在线录制 ──
+let recorderCtx = null, recorderStream = null, recorderProc = null;
+let recording = false, recTimer = null, recSeconds = 0;
+let recordedChunks = [];  // Float32Array chunks
+
+async function toggleRecording() {
+  if (recording) { stopRecording(); return; }
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) {
+      throw new Error('浏览器不支持麦克风，请使用 Chrome/Edge');
+    }
+    recorderStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true }
+    });
+    recorderCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    const source = recorderCtx.createMediaStreamSource(recorderStream);
+    recorderProc = recorderCtx.createScriptProcessor(4096, 1, 1);
+    recorderProc.onaudioprocess = e => {
+      if (!recording) return;
+      recordedChunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    };
+    source.connect(recorderProc);
+    recorderProc.connect(recorderCtx.destination);
+
+    recording = true; recSeconds = 0; recordedChunks = [];
+    document.getElementById('recBtn').classList.add('recording');
+    document.getElementById('recBtn').textContent = '⏹';
+    document.getElementById('recHint').textContent = '录制中... 点击停止';
+    recTimer = setInterval(() => {
+      recSeconds++;
+      const m = Math.floor(recSeconds / 60).toString().padStart(2,'0');
+      const s = (recSeconds % 60).toString().padStart(2,'0');
+      document.getElementById('recTimer').textContent = `${m}:${s}`;
+      if (recSeconds >= 30) {
+        document.getElementById('recHint').textContent = '已录制 30 秒，建议停止';
+      }
+    }, 1000);
+  } catch(e) {
+    toast(e.message, 'error', 5000);
+  }
+}
+
+function stopRecording() {
+  recording = false;
+  if (recTimer) { clearInterval(recTimer); recTimer = null; }
+  if (recorderProc) { recorderProc.disconnect(); recorderProc = null; }
+  if (recorderStream) { recorderStream.getTracks().forEach(t => t.stop()); recorderStream = null; }
+  if (recorderCtx) { recorderCtx.close(); recorderCtx = null; }
+  document.getElementById('recBtn').classList.remove('recording');
+  document.getElementById('recBtn').textContent = '🎤';
+
+  if (recordedChunks.length === 0) {
+    document.getElementById('recHint').textContent = '未录制到音频，请重试';
+    return;
+  }
+  // 合并所有 chunk 为单个 Float32Array
+  let totalLen = 0;
+  recordedChunks.forEach(c => totalLen += c.length);
+  const merged = new Float32Array(totalLen);
+  let offset = 0;
+  recordedChunks.forEach(c => { merged.set(c, offset); offset += c.length; });
+
+  if (totalLen < 16000) {  // < 1 秒
+    document.getElementById('recHint').textContent = '录制时长不足 1 秒，请重试';
+    return;
+  }
+  // 转 WAV Blob
+  uploadedFile = float32ToWavBlob(merged, 16000);
+  document.getElementById('spkAudioLabel').textContent = `已录制: ${(totalLen/16000).toFixed(1)}s`;
+  document.getElementById('recHint').textContent = `录制完成 (${(totalLen/16000).toFixed(1)}s)，可点击注册`;
+  // 切换到上传面板显示文件信息
+  switchSource('upload');
+}
+
+function float32ToWavBlob(float32, sampleRate) {
+  const int16 = new Int16Array(float32.length);
+  for (let i = 0; i < float32.length; i++) {
+    const s = Math.max(-1, Math.min(1, float32[i]));
+    int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+  }
+  const header = new ArrayBuffer(44);
+  const view = new DataView(header);
+  writeStr(view, 0, 'RIFF'); view.setUint32(4, 36 + int16.length * 2, true);
+  writeStr(view, 8, 'WAVE'); writeStr(view, 12, 'fmt ');
+  view.setUint32(16, 16, true); view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true); view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true); view.setUint16(34, 16, true);
+  writeStr(view, 36, 'data'); view.setUint32(40, int16.length * 2, true);
+  const blob = new Blob([header, int16], { type: 'audio/wav' });
+  return new File([blob], 'recording.wav', { type: 'audio/wav' });
+}
+function writeStr(view, offset, str) { for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i)); }
+
+// ── 注册 ──
 async function registerSpeaker() {
-  const audio = spkInput.files[0];
   const name = document.getElementById('spkName').value.trim();
-  if (!audio || !name) return toast('请选择音频并输入名字','error');
+  if (!name) return toast('请输入说话人名字', 'error');
+
+  let audio = null;
+  if (sourceMode === 'record') {
+    audio = uploadedFile;
+  } else {
+    audio = spkInput.files[0] || uploadedFile;
+  }
+  if (!audio) return toast('请选择音频文件或录制音频', 'error');
+
+  const btn = document.getElementById('regBtn');
+  btn.disabled = true; btn.textContent = '注册中...';
   try {
     const group = document.getElementById('spkGroup').value.trim() || undefined;
     const res = await FunASRApi.registerSpeaker(audio, name, group);
     toast(`✅ 注册成功！group_id: ${res.group_id}，请保存好此 ID`, 'success', 8000);
-    document.getElementById('spkGroupLabel')?.textContent || '';
     loadGroups();
-  } catch(e) { toast('注册失败: '+e.message, 'error'); }
+  } catch(e) { toast('注册失败: ' + e.message, 'error'); }
+  btn.disabled = false; btn.textContent = '📝 注册声纹';
 }
 
+// ── 列表 ──
 async function loadGroups() {
   try {
     const data = await FunASRApi.listSpeakerGroups();
@@ -77,24 +244,22 @@ async function loadGroups() {
       return;
     }
     tbody.innerHTML = data.groups.map(g => `<tr>
-      <td style="font-family:monospace">${g.group_id}</td>
+      <td style="font-family:monospace;font-size:13px">${g.group_id}</td>
       <td>${g.speaker_count}</td>
       <td>${g.speakers.join(', ')}</td>
       <td>
         <button class="btn btn-sm btn-primary" onclick="copyText('${g.group_id}')">📋 复制ID</button>
-        <button class="btn btn-sm btn-danger" onclick="deleteGroup('${g.group_id}')">🗑</button>
+        ${g.speakers.map(s => `<button class="btn btn-sm btn-danger" style="margin-left:4px" onclick="deleteOne('${g.group_id}','${s}')">🗑 ${s}</button>`).join('')}
       </td>
     </tr>`).join('');
   } catch(e) { document.getElementById('groupsBody').innerHTML = '<tr><td colspan="4" style="color:red">加载失败: '+e.message+'</td></tr>'; }
 }
 
-async function deleteGroup(gid) {
+async function deleteOne(gid, name) {
+  if (!confirm(`确认删除说话人 "${name}"？`)) return;
   try {
-    const data = await FunASRApi.getSpeakers(gid);
-    for (const name of data.speakers) {
-      await FunASRApi.deleteSpeaker(gid, name);
-    }
-    toast('已删除 group: '+gid, 'success');
+    await FunASRApi.deleteSpeaker(gid, name);
+    toast(`已删除: ${name}`, 'success');
     loadGroups();
   } catch(e) { toast('删除失败: '+e.message, 'error'); }
 }
