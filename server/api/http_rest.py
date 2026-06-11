@@ -47,6 +47,9 @@ async def recognition(
             "merge_vad": True, "merge_length_s": 15,
             "sentence_timestamp": True,
         }
+        if speaker_diarization:
+            # 显式禁用 output_timestamp, SenseVoice 不支持字级 timestamp
+            gen_kwargs["output_timestamp"] = False
 
         result_list = await run_blocking(
             _generate_sync, model, pcm_bytes,

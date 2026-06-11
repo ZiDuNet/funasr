@@ -56,6 +56,10 @@ async def transcribe(
             "merge_vad": True,
             "merge_length_s": 15,
         }
+        if speaker_diarization:
+            # 显式禁用 output_timestamp, SenseVoice 不支持字级 timestamp
+            # FunASR 检测到 spk_model 会自动开 output_timestamp, 会导致 KeyError
+            gen_kwargs["output_timestamp"] = False
 
         t0 = time.time()
         result_list = await run_blocking(
