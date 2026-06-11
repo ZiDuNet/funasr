@@ -1,0 +1,56 @@
+# ═══════════════════════════════════════════════════
+#  FunASR All-in-One — 开发模式 Dockerfile
+#  ──────────────────────────────────────────────
+#  只装系统依赖 + Python 包，不打包代码
+#  代码和前端通过 docker-compose 卷挂载到容器
+#  改代码改前端 → 重启容器即可，不用重新 build
+#  ═══════════════════════════════════════════════════
+
+# 默认使用 DaoCloud 镜像（国内稳定），海外构建: --build-arg BASE_IMAGE=python:3.10-slim
+ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.10-slim
+FROM ${BASE_IMAGE}
+
+LABEL maintainer="ZiDuNet"
+LABEL description="FunASR 统一语音识别服务 (开发模式)"
+
+# ── 系统依赖（清华 TUNA 镜像）──────────────────
+RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.list.d/debian.sources \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends \
+        ffmpeg git libsndfile1 \
+    && rm -rf /var/lib/apt/lists/*
+
+# ── Python 依赖（清华源 + 阿里云 PyTorch cu121）────────────────
+WORKDIR /app
+
+# dev 模式：只装运行时依赖，代码用卷挂载
+COPY requirements.txt .
+
+# 清华源装通用包, PyTorch 用官方 cu121 (阿里云镜像路径失效)
+RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
+    && pip install --upgrade pip \
+    && pip install --no-cache-dir "torch>=2.1" "torchaudio>=2.1" \
+        --index-url https://download.pytorch.org/whl/cu121 \
+    && pip install --no-cache-dir -r requirements.txt
+
+# ── 数据目录 ────────────────────────────────────
+RUN mkdir -p /app/data /app/server /app/web /root/.cache/modelscope
+
+# 代码/前端在 compose 中通过卷挂载到 /app/server 和 /app/web
+# docker compose -f docker-compose.dev.yml up -d
+
+# ── 环境变量 ────────────────────────────────────
+ENV FUNASR_DEVICE=cpu
+ENV FUNASR_PORT=17767
+ENV MODEL=fun-asr-nano
+ENV PRELOAD_ALL=true
+ENV ENABLE_STREAMING=true
+ENV ENABLE_MCP=true
+
+EXPOSE 17767
+
+# 健康检查
+HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:17767/health', timeout=3)" || exit 1
+
+CMD ["sh", "-c", "python -m server.main"]

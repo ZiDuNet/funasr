@@ -1,0 +1,56 @@
+# ═══════════════════════════════════════════════════
+#  FunASR All-in-One — 开发模式
+#  ──────────────────────────────────────────────
+#  代码/前端用卷挂载，改代码改前端 → 重启容器即可
+#  不需要每次 docker compose build
+#  ═══════════════════════════════════════════════════
+#  使用:
+#   1. 首次构建基础镜像(只装依赖):
+#        docker compose -f docker-compose.dev.yml build
+#   2. 启动:
+#        docker compose -f docker-compose.dev.yml up -d
+#   3. 改代码后:
+#        docker compose -f docker-compose.dev.yml restart
+#  ═══════════════════════════════════════════════════
+
+services:
+  funasr:
+    build:
+      context: .
+      dockerfile: Dockerfile.dev
+    image: funasr-dev:latest
+    container_name: funasr
+
+    ports:
+      - "${FUNASR_PORT:-17767}:17767"
+
+    environment:
+      - FUNASR_DEVICE=${FUNASR_DEVICE:-cpu}
+      - MODEL=${MODEL:-fun-asr-nano}
+      - FUNASR_PORT=17767
+      - PRELOAD_ALL=${PRELOAD_ALL:-true}
+      - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
+      - ENABLE_MCP=${ENABLE_MCP:-true}
+      - API_TOKEN=${API_TOKEN:-}
+      - MODELSCOPE_CACHE=/root/.cache/modelscope
+      - FUNASR_DATA_DIR=/app/data
+
+    # ★ 关键：代码和前端挂载，修改本地文件立即生效（重启容器即可）
+    volumes:
+      - ./server:/app/server              # Python 代码
+      - ./web:/app/web                    # 前端静态文件
+      - ./models:/root/.cache/modelscope:z   # 模型缓存（持久化）
+      - ./data:/app/data:z               # 任务数据
+      - ./hotwords.txt:/app/hotwords.txt:ro   # 热词（可选）
+
+    shm_size: "2gb"
+    restart: unless-stopped
+
+    # GPU 模式：取消下面 deploy 注释 + .env 中 FUNASR_DEVICE=cuda
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #         count: all
+    #         capabilities: [gpu]
