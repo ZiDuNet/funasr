@@ -92,13 +92,13 @@ async def transcribe(
         if speaker_group:
             resp["speaker_group"] = speaker_group
 
-        # 分段信息（含时间戳；说话人信息仅在说话人分离时返回）
+        # 分段信息（毫秒；说话人信息仅在说话人分离时返回）
         if "sentence_info" in raw:
             segments = []
             for seg in raw["sentence_info"]:
                 s = {
-                    "start": seg.get("start", 0),       # 毫秒，匹配后再转秒
-                    "end": seg.get("end", 0),
+                    "start": seg.get("start", 0),       # 毫秒
+                    "end": seg.get("end", 0),           # 毫秒
                     "text": clean_text(seg.get("text") or seg.get("sentence", "")),
                 }
                 if speaker_diarization and "spk" in seg:
@@ -109,11 +109,6 @@ async def transcribe(
             if speaker_diarization and speaker_group:
                 match_segments(segments, pcm_bytes, speaker_group,
                                registry.get_aux("sv"))
-
-            # 时间戳统一转秒（OpenAI 兼容格式）
-            for s in segments:
-                s["start"] = s["start"] / 1000.0
-                s["end"] = s["end"] / 1000.0
 
             resp["segments"] = segments
 
