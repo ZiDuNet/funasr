@@ -55,6 +55,7 @@ async def transcribe(
             "use_itn": True,
             "merge_vad": True,
             "merge_length_s": 15,
+            "sentence_timestamp": True,     # 始终返回时间戳
         }
 
         t0 = time.time()
