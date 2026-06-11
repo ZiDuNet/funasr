@@ -21,3 +21,6 @@ __pycache__/
 # 临时文件
 *.tmp
 .DS_Store
+
+# Docker本地文件
+.dockerignore

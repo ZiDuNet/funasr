@@ -8,7 +8,7 @@
 #  ═══════════════════════════════════════════════════
 
 # 默认使用 DAO 云公共镜像（国内加速），海外构建: --build-arg BASE_IMAGE=python:3.10-slim
-ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.10-slim
+ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.12-slim
 FROM ${BASE_IMAGE}
 
 # ── 元信息 ──────────────────────────────────────
@@ -33,7 +33,7 @@ COPY requirements.txt .
 RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ \
     && pip install --no-cache-dir torch torchaudio \
         -i https://mirrors.aliyun.com/pypi/simple/ \
-        --index-url https://download.pytorch.org/whl/cu118 \
+        --index-url https://download.pytorch.org/whl/cu130 \
     && pip install --no-cache-dir -r requirements.txt \
         -i https://mirrors.aliyun.com/pypi/simple/
 

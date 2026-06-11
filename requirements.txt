@@ -1,13 +1,11 @@
 funasr
-torch
-torchaudio
 fastapi
 uvicorn[standard]
 python-multipart
 aiofiles
 httpx
 fastmcp>=2.3
-numpy
+numpy<2
 scipy
 # ── 可选模型依赖（按需取消注释）──────────────
 # Qwen3-ASR 需要
