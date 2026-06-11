@@ -26,10 +26,11 @@ WORKDIR /app
 # dev 模式：只装运行时依赖，代码用卷挂载
 COPY requirements.txt .
 
-# 清华源装通用包, PyTorch 用官方 cu121 (阿里云镜像路径失效)
+# 清华源装通用包, PyTorch 用官方 cu118
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
-    && pip install --no-cache-dir "torch>=2.1" "torchaudio>=2.1" \
+    && pip install --no-cache-dir --no-build-isolation \
+        "torch>=2.1" "torchaudio>=2.1" \
         --index-url https://download.pytorch.org/whl/cu118 \
     && pip install --no-cache-dir -r requirements.txt
 
