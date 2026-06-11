@@ -29,12 +29,13 @@ WORKDIR /app
 # dev 模式：只装运行时依赖，代码用卷挂载
 COPY requirements.txt .
 
-# ARM GB10: PyTorch 装 cu118 (清华源对 cu118 同步完整, 2.1+ 都有)
+# ARM GB10 (aarch64): PyTorch 2.1.2 是清华源 ARM wheels 完整支持的最新版
+# (2.2+ 清华源 aarch64 wheels 缺失, 装不带 +cu118 后缀, CUDA 通过 cuda 库运行时支持)
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
     && rm -rf /root/.cache/pip /tmp/pip-* \
     && pip install --no-cache-dir --no-build-isolation \
-        torch==2.4.1+cu118 torchaudio==2.4.1+cu118 \
+        torch==2.1.2 torchaudio==2.1.2 \
     && pip install --no-cache-dir -r requirements.txt
 
 # ── 数据目录 ────────────────────────────────────
