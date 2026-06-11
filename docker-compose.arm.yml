@@ -17,7 +17,7 @@ services:
   funasr:
     build:
       context: .
-      dockerfile: Dockerfile.dev
+      dockerfile: Dockerfile.arm
     image: funasr-dev:latest
     container_name: funasr
 
