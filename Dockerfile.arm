@@ -23,20 +23,19 @@ RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.li
         ffmpeg git libsndfile1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python 依赖（清华源 + 阿里云 PyTorch cu121）────────────────
+# ── Python 依赖（清华源, PyTorch 让 funasr 依赖自动拉取）────────────────
 WORKDIR /app
 
 # dev 模式：只装运行时依赖，代码用卷挂载
 COPY requirements.txt .
 
-# ARM GB10 (aarch64): PyTorch 2.1.2 是清华源 ARM wheels 完整支持的最新版
-# (2.2+ 清华源 aarch64 wheels 缺失, 装不带 +cu118 后缀, CUDA 通过 cuda 库运行时支持)
+# ARM GB10 (aarch64): FunASR 官方推荐直接装 funasr, torch 由 funasr 依赖拉取
+# 不用手动指定 torch 版本, 让 funasr 选与 ARM 兼容的 wheel
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
     && rm -rf /root/.cache/pip /tmp/pip-* \
-    && pip install --no-cache-dir --no-build-isolation \
-        torch==2.1.2 torchaudio==2.1.2 \
-    && pip install --no-cache-dir -r requirements.txt
+    && pip install --no-cache-dir -r requirements.txt \
+    && pip install --no-cache-dir --no-build-isolation "torch<2.2" "torchaudio<2.2"
 
 # ── 数据目录 ────────────────────────────────────
 RUN mkdir -p /app/data /app/server /app/web /root/.cache/modelscope
