@@ -61,6 +61,7 @@ _PRESETS = {
             "model": "iic/SenseVoiceSmall",
             "vad_model": "fsmn-vad",
             "vad_kwargs": {"max_single_segment_time": 30000},
+            "punc_model": "ct-punc",  # 必须配 punc 否则 sentence_info 不会输出
         },
     },
     "paraformer": {
