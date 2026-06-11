@@ -26,13 +26,14 @@ WORKDIR /app
 # dev 模式：只装运行时依赖，代码用卷挂载
 COPY requirements.txt .
 
-# 清华源装通用包, PyTorch 锁 2.4.1 (transformers 兼容, 官方 cu118 必有)
+# 通用包用清华源加速, PyTorch 用官方源 + 清华源作为 fallback
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
     && rm -rf /root/.cache/pip /tmp/pip-* \
     && pip install --no-cache-dir --no-build-isolation \
         torch==2.4.1+cu118 torchaudio==2.4.1+cu118 \
         --index-url https://download.pytorch.org/whl/cu118 \
+        --extra-index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --no-cache-dir -r requirements.txt
 
 # ── 数据目录 ────────────────────────────────────
