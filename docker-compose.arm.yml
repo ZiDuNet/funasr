@@ -50,4 +50,7 @@ services:
     deploy:
       resources:
         reservations:
-          devices: [gpu]
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
