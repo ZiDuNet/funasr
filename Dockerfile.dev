@@ -8,6 +8,9 @@
 
 # 默认使用 DaoCloud 镜像（国内稳定），海外构建: --build-arg BASE_IMAGE=python:3.10-slim
 ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.10-slim
+# ARM 架构: 用 aarch64 镜像 (DGX Spark GB10)
+ARG TARGETARCH
+ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.10-slim
 FROM ${BASE_IMAGE}
 
 LABEL maintainer="ZiDuNet"
@@ -26,13 +29,13 @@ WORKDIR /app
 # dev 模式：只装运行时依赖，代码用卷挂载
 COPY requirements.txt .
 
-# 清华源装通用包 + PyTorch (清华源同步了官方 PyTorch cu118 wheels)
+# ARM (GB10): PyTorch 用官方 aarch64 索引
+# x86: pip install 即可
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
     && rm -rf /root/.cache/pip /tmp/pip-* \
     && pip install --no-cache-dir --no-build-isolation \
-        torch==2.4.1+cu118 torchaudio==2.4.1+cu118 \
-        --index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
+        torch==2.4.1 torchaudio==2.4.1 \
     && pip install --no-cache-dir -r requirements.txt
 
 # ── 数据目录 ────────────────────────────────────
