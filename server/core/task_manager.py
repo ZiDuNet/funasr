@@ -285,13 +285,13 @@ class TaskManager:
                     "use_itn": True,
                     "merge_vad": True,
                     "merge_length_s": 15,
+                    "sentence_timestamp": True,     # 始终返回时间戳
                 }
                 if task.language and task.language != "auto":
                     gen_kwargs["language"] = task.language
                 if task.hotwords:
                     gen_kwargs["hotword"] = task.hotwords
                 if task.speaker_diarization:
-                    gen_kwargs["sentence_timestamp"] = True
                     gen_kwargs["return_spk_res"] = True
 
                 registry = ModelRegistry.get_instance()
@@ -415,16 +415,16 @@ def _format_result(raw: dict, task: TranscriptionTask) -> dict:
     if task.events:
         result["events"] = extract_events(text)
 
-    # segments 仅在说话人分离请求时返回
-    if task.speaker_diarization and "sentence_info" in raw:
+    # segments 始终返回（只要有 sentence_info），无说话人分离时不带 speaker_id
+    if "sentence_info" in raw:
         segments = []
         for seg in raw["sentence_info"]:
             s = {
                 "text": clean_text(seg.get("text") or seg.get("sentence", "")),
-                "start": seg.get("start", 0),
+                "start": seg.get("start", 0),    # 毫秒
                 "end": seg.get("end", 0),
             }
-            if "spk" in seg:
+            if task.speaker_diarization and "spk" in seg:
                 s["speaker_id"] = seg["spk"]
             segments.append(s)
         result["segments"] = segments
