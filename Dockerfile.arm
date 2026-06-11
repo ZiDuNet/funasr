@@ -35,7 +35,7 @@ RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
     && rm -rf /root/.cache/pip /tmp/pip-* \
     && pip install --no-cache-dir -r requirements.txt \
-    && pip install --no-cache-dir --no-build-isolation "torch<2.2" "torchaudio<2.2"
+    && pip install --no-cache-dir --no-build-isolation torch torchaudio
 
 # ── 数据目录 ────────────────────────────────────
 RUN mkdir -p /app/data /app/server /app/web /root/.cache/modelscope
