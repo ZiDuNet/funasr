@@ -34,6 +34,7 @@ COPY requirements.txt .
 RUN pip config set global.index-url https://pypi.tuna.tsinghua.edu.cn/simple/ \
     && pip install --upgrade pip \
     && rm -rf /root/.cache/pip /tmp/pip-* \
+    && pip install --no-cache-dir "numpy<2" "scipy<1.13" \
     && pip install --no-cache-dir -r requirements.txt \
     && pip install --no-cache-dir --no-build-isolation torch torchaudio
 
