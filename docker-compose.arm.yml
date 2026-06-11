@@ -25,8 +25,8 @@ services:
       - "${FUNASR_PORT:-17767}:17767"
 
     environment:
-      - FUNASR_DEVICE=${FUNASR_DEVICE:-cpu}
-      - MODEL=${MODEL:-fun-asr-nano}
+      - FUNASR_DEVICE=${FUNASR_DEVICE:-cuda}
+      - MODEL=${MODEL:-sensevoice}
       - FUNASR_PORT=17767
       - PRELOAD_ALL=${PRELOAD_ALL:-true}
       - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
@@ -46,8 +46,8 @@ services:
     shm_size: "2gb"
     restart: unless-stopped
 
-    # GPU 模式：取消下面 deploy 注释 + .env 中 FUNASR_DEVICE=cuda
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices: [gpu]    # 简写写法, 无 YAML 缩进问题
+    # GPU 默认开启 (GB10 ARM 设备)
+    deploy:
+      resources:
+        reservations:
+          devices: [gpu]
