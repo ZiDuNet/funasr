@@ -50,7 +50,4 @@ services:
     # deploy:
     #   resources:
     #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #         count: all
-    #         capabilities: [gpu]
+    #       devices: [gpu]    # 简写写法, 无 YAML 缩进问题
