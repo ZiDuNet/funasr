@@ -364,29 +364,48 @@ curl -X POST http://localhost:17767/api/v1/transcriptions \
 
 ## 实时 WebSocket
 
+Swagger `/docs` 不展示 WebSocket 路由；实时接口以本节为准。
+
 连接地址：
 
 ```text
 ws://localhost:17767/api/v1/realtime/transcriptions
 ```
 
-初始配置消息：
+如果启用了 `API_TOKEN`：
+
+```text
+ws://localhost:17767/api/v1/realtime/transcriptions?token=your-token
+```
+
+连接建立后先发送 `session.start` 配置事件。参数结构与 HTTP API 一致：
 
 ```json
 {
+  "type": "session.start",
   "mode": "2pass",
+  "audio_fs": 16000,
+  "wav_format": "pcm",
   "chunk_size": [5, 10, 5],
   "chunk_interval": 10,
   "wav_name": "microphone",
-  "is_speaking": true,
-  "wav_format": "pcm",
-  "audio_fs": 16000,
   "itn": true,
-  "diarization": true,
-  "speaker_group": "grp_xxx",
-  "emotion": true,
-  "events": true,
-  "hotwords": "{\"FunASR\":20}"
+  "features": {
+    "diarization": true,
+    "speaker_match": {
+      "enabled": true,
+      "group_id": "grp_xxx"
+    },
+    "emotion": true,
+    "events": true,
+    "punctuation": true,
+    "raw": false
+  },
+  "options": {
+    "language": "auto",
+    "hotwords": {"FunASR": 20}
+  },
+  "fallback": "auto"
 }
 ```
 
@@ -395,13 +414,14 @@ ws://localhost:17767/api/v1/realtime/transcriptions
 结束录音：
 
 ```json
-{"is_speaking": false}
+{"type": "audio.end"}
 ```
 
 在线临时结果：
 
 ```json
 {
+  "type": "transcript.delta",
   "mode": "2pass-online",
   "text": "临时结果",
   "is_final": false
@@ -423,6 +443,27 @@ ws://localhost:17767/api/v1/realtime/transcriptions
   "sentences": []
 }
 ```
+
+服务端事件：
+
+| 事件 | 说明 |
+|---|---|
+| `session.started` | 配置已生效 |
+| `transcript.delta` | 实时中间文本，`online` / `2pass` 返回 |
+| `transcript.segment` | VAD 断句后的最终片段，`offline` / `2pass` 返回 |
+| `error` | 配置或推理错误 |
+
+三种模式：
+
+| 模式 | 返回逻辑 | 增强字段 |
+|---|---|---|
+| `online` | 只返回实时中间文本，延迟最低 | 不返回说话人、声纹、情感、事件 |
+| `offline` | VAD 断句后返回最终片段 | 最终段可返回说话人、声纹、情感、事件、标点 |
+| `2pass` | 先返回实时中间文本，断句后返回最终修正片段 | 最终段可返回全部增强字段 |
+
+说话人一致性在单个 WebSocket 连接会话内维护。开启 `diarization` 后，
+服务端会用会话级 `SpeakerTracker` 尽量保持跨句 `speaker_0` 指向同一人；
+开启 `speaker_match` 并指定 `group_id` 后，最终段会继续匹配注册声纹并返回姓名和分数。
 
 ## OpenAI 兼容接口
 

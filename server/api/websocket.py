@@ -6,6 +6,7 @@ import os
 
 from fastapi import WebSocket, WebSocketDisconnect
 
+from server.core.schemas import build_config
 from server.core.inference import (
     infer_vad, infer_asr_online, infer_asr_offline_ws,
 )
@@ -16,6 +17,96 @@ from server.models.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
 _API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+
+
+def _parse_chunk_size(value) -> list[int]:
+    if isinstance(value, str):
+        value = [x.strip() for x in value.split(",") if x.strip()]
+    if not isinstance(value, (list, tuple)):
+        raise ValueError("chunk_size must be a list or comma-separated string")
+    if len(value) != 3:
+        raise ValueError("chunk_size must contain 3 integers")
+    return [int(x) for x in value]
+
+
+def _apply_config_frame(state: dict, cfg: dict) -> None:
+    """Apply the WS session.start config frame."""
+    event_type = cfg.get("type")
+    if event_type == "audio.end":
+        state["is_speaking"] = False
+        state["status_asr_online"]["is_final"] = True
+        return
+
+    if event_type and event_type != "session.start":
+        raise ValueError("first/control text frame type must be session.start or audio.end")
+
+    for key in ("is_speaking", "wav_name", "chunk_interval",
+                "audio_fs", "wav_format", "mode"):
+        if key in cfg:
+            state[key] = cfg[key]
+
+    if "mode" in cfg and state["mode"] not in {"online", "offline", "2pass"}:
+        raise ValueError("mode must be one of: online, offline, 2pass")
+
+    if "chunk_size" in cfg:
+        state["status_asr_online"]["chunk_size"] = _parse_chunk_size(cfg["chunk_size"])
+
+    if "is_speaking" in cfg:
+        v = bool(cfg["is_speaking"])
+        state["is_speaking"] = v
+        state["status_asr_online"]["is_final"] = not v
+
+    if "encoder_chunk_look_back" in cfg:
+        state["status_asr_online"]["encoder_chunk_look_back"] = int(
+            cfg["encoder_chunk_look_back"]
+        )
+    if "decoder_chunk_look_back" in cfg:
+        state["status_asr_online"]["decoder_chunk_look_back"] = int(
+            cfg["decoder_chunk_look_back"]
+        )
+
+    config_keys = {
+        "features", "options", "fallback", "language", "diarization",
+        "speaker_diarization", "speaker_match", "speaker_group", "emotion",
+        "events", "punctuation", "hotwords", "raw",
+    }
+    if not any(key in cfg for key in config_keys):
+        return
+
+    config_json = json.dumps(cfg, ensure_ascii=False)
+    tc = build_config(
+        config_json=config_json,
+        language=cfg.get("language"),
+        diarization=cfg.get("diarization"),
+        speaker_diarization=cfg.get("speaker_diarization"),
+        speaker_match=cfg.get("speaker_match"),
+        speaker_group=cfg.get("speaker_group"),
+        emotion=cfg.get("emotion"),
+        events=cfg.get("events"),
+        punctuation=cfg.get("punctuation"),
+        hotwords=cfg.get("hotwords"),
+        raw=cfg.get("raw"),
+        fallback=cfg.get("fallback"),
+    )
+
+    state["language"] = tc.language
+    state["fallback"] = tc.fallback
+    state["speaker_diarization"] = tc.features.diarization
+    state["speaker_match"] = tc.features.speaker_match
+    state["speaker_group"] = tc.features.speaker_group
+    state["emotion"] = tc.features.emotion
+    state["events"] = tc.features.events
+    state["punctuation"] = tc.features.punctuation
+    state["raw"] = tc.features.raw
+    state["requested_features"] = tc.requested_features()
+
+    if tc.hotwords:
+        state["status_asr"]["hotword"] = tc.hotwords
+        state["status_asr_online"]["hotword"] = tc.hotwords
+    if "itn" in cfg:
+        state["itn"] = bool(cfg["itn"])
+    state["status_asr"]["language"] = tc.language
+    state["status_asr"]["use_itn"] = state["itn"]
 
 
 def _milliseconds_to_seconds(value) -> float:
@@ -107,13 +198,23 @@ def register_ws_endpoint(app):
             "audio_fs": 16000,
             "wav_format": "pcm",
             "itn": True,
+            "language": "auto",
+            "fallback": "error",
             "speaker_diarization": False,
+            "speaker_match": False,
             "speaker_group": "",             # 声纹组 ID
             "emotion": False,                # 情感识别
             "events": False,                 # 事件检测
+            "punctuation": True,              # 最终段标点，取决于离线模型能力
+            "raw": False,
+            "requested_features": ["asr", "sentence_timestamps", "paragraphs"],
             "vad_pre_idx": 0,                # VAD 预处理音频累计时长
-            "status_asr": {"batch_size_s": 300},
-            "status_asr_online": {"cache": {}, "is_final": False},
+            "status_asr": {"batch_size_s": 300, "language": "auto", "use_itn": True},
+            "status_asr_online": {
+                "cache": {},
+                "is_final": False,
+                "chunk_size": [5, 10, 5],
+            },
             "status_vad": {"cache": {}, "is_final": False, "max_single_segment_time": 15000},
             "status_punc": {"cache": {}},
         }
@@ -135,37 +236,34 @@ def register_ws_endpoint(app):
                             cfg = json.loads(msg["text"])
                         except json.JSONDecodeError:
                             continue
-
-                        for key in ("is_speaking", "wav_name", "chunk_interval",
-                                     "audio_fs", "wav_format", "mode"):
-                            if key in cfg:
-                                state[key] = cfg[key]
-
-                        if "is_speaking" in cfg:
-                            v = bool(cfg["is_speaking"])
-                            state["is_speaking"] = v
-                            state["status_asr_online"]["is_final"] = not v
-
-                        if "chunk_size" in cfg:
-                            cs = cfg["chunk_size"]
-                            if isinstance(cs, str):
-                                cs = [int(x.strip()) for x in cs.split(",") if x.strip()]
-                            state["status_asr_online"]["chunk_size"] = [int(x) for x in cs]
-
-                        if "hotwords" in cfg:
-                            state["status_asr"]["hotword"] = cfg["hotwords"]
-                            state["status_asr_online"]["hotword"] = cfg["hotwords"]
-
-                        if "diarization" in cfg:
-                            state["speaker_diarization"] = bool(cfg["diarization"])
-                        if "speaker_group" in cfg:
-                            state["speaker_group"] = str(cfg["speaker_group"])
-                        if "emotion" in cfg:
-                            state["emotion"] = bool(cfg["emotion"])
-                        if "events" in cfg:
-                            state["events"] = bool(cfg["events"])
-                        if "itn" in cfg:
-                            state["itn"] = bool(cfg["itn"])
+                        try:
+                            _apply_config_frame(state, cfg)
+                        except Exception as exc:
+                            await websocket.send_json({
+                                "type": "error",
+                                "code": "invalid_config",
+                                "message": str(exc),
+                            })
+                            continue
+                        if cfg.get("type") == "session.start":
+                            await websocket.send_json({
+                                "type": "session.started",
+                                "mode": state["mode"],
+                                "audio": {
+                                    "format": state["wav_format"],
+                                    "sample_rate": state["audio_fs"],
+                                    "channels": 1,
+                                },
+                                "features": {
+                                    "diarization": state["speaker_diarization"],
+                                    "speaker_match": state["speaker_match"],
+                                    "speaker_group": state["speaker_group"],
+                                    "emotion": state["emotion"],
+                                    "events": state["events"],
+                                    "punctuation": state["punctuation"],
+                                    "raw": state["raw"],
+                                },
+                            })
 
                     elif "bytes" in msg:
                         pcm = msg["bytes"]
@@ -200,6 +298,7 @@ def register_ws_endpoint(app):
                                             partial_text_online = rec["text"]
                                             mode_label = "2pass-online" if "2pass" in state["mode"] else state["mode"]
                                             await websocket.send_json({
+                                                "type": "transcript.delta",
                                                 "mode": mode_label,
                                                 "text": rec["text"],
                                                 "wav_name": state["wav_name"],
@@ -253,8 +352,8 @@ def register_ws_endpoint(app):
                                                 sentence_info = speaker_tracker.track(
                                                     sentence_info, audio_in)
 
-                                                # 2. 声纹匹配（speaker_group → 注册名）
-                                                if state.get("speaker_group"):
+                                                # 2. 声纹匹配（speaker_match + speaker_group → 注册名）
+                                                if state.get("speaker_match") and state.get("speaker_group"):
                                                     for si in sentence_info:
                                                         if "spk" in si:
                                                             si["speaker_id"] = si["spk"]
@@ -282,8 +381,45 @@ def register_ws_endpoint(app):
                                                 "is_final": True,
                                                 "timestamp": rec.get("timestamp"),
                                                 "sentence_info": sentence_info,
+                                                "features": {
+                                                    "requested": state["requested_features"],
+                                                    "applied": [
+                                                        "asr",
+                                                        "sentence_timestamps",
+                                                        "paragraphs",
+                                                        *(
+                                                            ["diarization"]
+                                                            if state.get("speaker_diarization")
+                                                            else []
+                                                        ),
+                                                        *(
+                                                            ["speaker_match"]
+                                                            if state.get("speaker_match")
+                                                            and state.get("speaker_group")
+                                                            else []
+                                                        ),
+                                                        *(
+                                                            ["emotion"]
+                                                            if state.get("emotion")
+                                                            else []
+                                                        ),
+                                                        *(
+                                                            ["events"]
+                                                            if state.get("events")
+                                                            else []
+                                                        ),
+                                                        *(
+                                                            ["punctuation"]
+                                                            if state.get("punctuation")
+                                                            else []
+                                                        ),
+                                                    ],
+                                                    "warnings": [],
+                                                },
                                                 **canonical,
                                             }
+                                            if state.get("raw"):
+                                                resp["raw"] = rec
                                             # 情感/事件仅在请求时返回
                                             if state.get("emotion"):
                                                 emo = extract_emotion(text)
