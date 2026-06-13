@@ -1150,7 +1150,6 @@ def build_gradio_app(task_manager: TaskManager | None = None):
                     rt_mic = gr.Audio(
                         sources=["microphone"],
                         streaming=True,
-                        stream_every=0.5,
                         type="numpy",
                         label="麦克风",
                         waveform_options=gr.WaveformOptions(show_recording_waveform=True),
