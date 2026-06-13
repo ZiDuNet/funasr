@@ -11,7 +11,7 @@ from server.core.inference import (
     infer_vad, infer_asr_online, infer_asr_offline_ws,
 )
 from server.core.audio import pcm_duration_ms
-from server.core.postprocess import clean_text, extract_emotion, extract_events
+from server.core.postprocess import clean_text, extract_metadata
 from server.core.speaker_db import match_segments, SpeakerTracker
 from server.models.registry import ModelRegistry
 
@@ -184,15 +184,22 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
                         state: dict, audio_duration: float) -> dict:
     raw_text = rec.get("text", "")
     text = clean_text(raw_text)
+    top_metadata = extract_metadata(raw_text)
     sentences = []
     for idx, seg in enumerate(sentence_info or []):
+        seg_text = seg.get("text") or seg.get("sentence", "")
+        seg_metadata = extract_metadata(seg_text)
         item = {
             "id": idx,
             "paragraph_id": 0,
             "start": _milliseconds_to_seconds(seg.get("start")),
             "end": _milliseconds_to_seconds(seg.get("end")),
-            "text": clean_text(seg.get("text") or seg.get("sentence", "")),
+            "text": clean_text(seg_text),
         }
+        if seg_metadata.get("language"):
+            item["language"] = seg_metadata["language"]
+        if "itn" in seg_metadata:
+            item["itn"] = seg_metadata["itn"]
         if state.get("speaker_diarization") and "spk" in seg:
             speaker = {"id": f"speaker_{seg['spk']}"}
             if "speaker" in seg:
@@ -203,9 +210,9 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
                 speaker["group_id"] = state["speaker_group"]
             item["speaker"] = speaker
         if state.get("emotion"):
-            item["emotion"] = extract_emotion(seg.get("text", "")) or extract_emotion(raw_text)
+            item["emotion"] = seg_metadata.get("emotion") or top_metadata.get("emotion")
         if state.get("events"):
-            item["events"] = extract_events(seg.get("text", "")) or extract_events(raw_text)
+            item["events"] = seg_metadata.get("events") or top_metadata.get("events", [])
         sentences.append(item)
 
     if not sentences and text:
@@ -234,10 +241,13 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
         "paragraphs": [paragraph] if sentences else [],
         "sentences": sentences,
     }
+    if top_metadata.get("language"):
+        canonical["language"] = top_metadata["language"]
+    canonical["itn"] = top_metadata.get("itn", state.get("itn", True))
     if state.get("emotion"):
-        canonical["emotion"] = extract_emotion(raw_text)
+        canonical["emotion"] = top_metadata.get("emotion")
     if state.get("events"):
-        canonical["events"] = extract_events(raw_text)
+        canonical["events"] = top_metadata.get("events", [])
     if state.get("speaker_group"):
         canonical["speaker_group"] = state["speaker_group"]
     return canonical
@@ -507,15 +517,6 @@ def register_ws_endpoint(app):
                                             }
                                             if state.get("raw"):
                                                 resp["raw"] = rec
-                                            # 情感/事件仅在请求时返回
-                                            if state.get("emotion"):
-                                                emo = extract_emotion(text)
-                                                if emo:
-                                                    resp["emotion"] = emo
-                                            if state.get("events"):
-                                                evt = extract_events(text)
-                                                if evt:
-                                                    resp["events"] = evt
                                             await websocket.send_json(resp)
                                     except Exception as e:
                                         logger.error(f"离线 ASR 错误: {e}")

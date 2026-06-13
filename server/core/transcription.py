@@ -15,7 +15,7 @@ from fastapi import HTTPException
 
 from server.core.audio import pcm_duration_ms
 from server.core.inference import _generate_sync, infer_emotion, run_blocking
-from server.core.postprocess import clean_text, extract_emotion, extract_events
+from server.core.postprocess import clean_text, extract_metadata
 from server.core.schemas import TranscriptionConfig, WarningItem
 from server.core.speaker_db import match_segments
 from server.models.capabilities import capabilities_for_model
@@ -141,9 +141,12 @@ def _sentences_from_raw(
 
     sentences = []
     raw_text = raw.get("text", "")
-    top_emotion = extract_emotion(raw_text)
-    top_events = extract_events(raw_text)
+    top_metadata = extract_metadata(raw_text)
+    top_emotion = top_metadata.get("emotion")
+    top_events = top_metadata.get("events", [])
     for idx, seg in enumerate(raw_sentences):
+        seg_text = str(seg.get("text") or seg.get("sentence") or "")
+        seg_metadata = extract_metadata(seg_text)
         sentence = {
             "id": idx,
             "paragraph_id": 0,
@@ -151,15 +154,18 @@ def _sentences_from_raw(
             "end": round(_milliseconds_to_seconds(seg.get("end")), 3),
             "text": _sentence_text(seg),
         }
+        if seg_metadata.get("language"):
+            sentence["language"] = seg_metadata["language"]
+        if "itn" in seg_metadata:
+            sentence["itn"] = seg_metadata["itn"]
         speaker = _speaker_object(seg, config.features.speaker_group)
         if config.features.diarization and speaker:
             sentence["speaker"] = speaker
 
-        seg_text = str(seg.get("text") or seg.get("sentence") or "")
         if config.features.emotion:
-            sentence["emotion"] = extract_emotion(seg_text) or top_emotion
+            sentence["emotion"] = seg_metadata.get("emotion") or top_emotion
         if config.features.events:
-            sentence["events"] = extract_events(seg_text) or top_events
+            sentence["events"] = seg_metadata.get("events") or top_events
         sentences.append(sentence)
     return sentences, warnings
 
@@ -219,6 +225,8 @@ def _applied_features(config: TranscriptionConfig, result: dict[str, Any]) -> li
         applied.append("punctuation")
     if config.hotwords:
         applied.append("hotwords")
+    if config.features.words:
+        applied.append("words")
     if config.features.raw:
         applied.append("raw")
     return applied
@@ -262,6 +270,7 @@ async def transcribe_pcm(
     elapsed = time.time() - started
     raw = result_list[0] if result_list else {}
     raw_text = str(raw.get("text") or "")
+    metadata = extract_metadata(raw_text)
     speaker_match_summary = None
 
     if config.features.speaker_match and raw.get("sentence_info"):
@@ -304,10 +313,10 @@ async def transcribe_pcm(
         "sentences": sentences,
     }
 
-    if config.language:
-        result["language"] = config.language
+    result["language"] = metadata.get("language") or config.language or "auto"
+    result["itn"] = metadata.get("itn", True)
     if config.features.emotion:
-        result["emotion"] = extract_emotion(raw_text)
+        result["emotion"] = metadata.get("emotion")
         if result["emotion"] is None:
             try:
                 emotion_raw = await infer_emotion(pcm_bytes)
@@ -327,7 +336,7 @@ async def transcribe_pcm(
                     )
                 )
     if config.features.events:
-        result["events"] = extract_events(raw_text)
+        result["events"] = metadata.get("events", [])
     if config.features.speaker_group:
         result["speaker_group"] = config.features.speaker_group
     if speaker_match_summary is not None:
