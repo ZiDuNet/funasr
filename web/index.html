@@ -881,7 +881,7 @@ print(result.segments)
               <li>发送 <code>session.start</code> JSON 配置帧</li>
               <li>持续发送 PCM 二进制音频帧</li>
               <li>停止录音时发送 <code>audio.end</code> JSON 控制帧</li>
-              <li>服务端返回 <code>session.started</code>、<code>transcript.delta</code>、<code>transcript.segment</code> 或 <code>error</code></li>
+              <li>服务端返回 <code>session.started</code>、<code>transcript.delta</code>、<code>transcript.segment</code>、<code>speaker.update</code> 或 <code>error</code></li>
             </ul>
           </div>
           <div class="protocol-block">
@@ -920,7 +920,8 @@ print(result.segments)
             <ul>
               <li><code>session.started</code> — 配置已生效，返回模式、音频格式和能力开关</li>
               <li><code>transcript.delta</code> — online/2pass 实时中间文本，一边说一边出字</li>
-              <li><code>transcript.segment</code> — offline/2pass 最终片段，VAD 断句后返回</li>
+              <li><code>transcript.segment</code> — offline/2pass 最终片段，VAD 断句后先返回文本和临时说话人</li>
+              <li><code>speaker.update</code> — 声纹匹配完成后异步修正已有文本的说话人标签</li>
               <li><code>error</code> — 配置或推理错误</li>
             </ul>
           </div>
@@ -929,12 +930,12 @@ print(result.segments)
             <ul>
               <li><b>online</b>：只返回 transcript.delta，低延迟；不返回说话人/声纹/情感/事件/完整标点</li>
               <li><b>offline</b>：VAD 断句后返回 transcript.segment；可返回增强字段，但无实时中间文本</li>
-              <li><b>2pass</b>（推荐）：先返回 delta，断句后返回 segment 修正结果</li>
+              <li><b>2pass</b>（推荐）：先返回 delta，断句后返回 segment；声纹命名通过 speaker.update 异步修正</li>
             </ul>
           </div>
           <div class="protocol-block">
             <h4>speaker_consistency</h4>
-            <p>说话人编号一致性仅在单个 WebSocket 会话内维护。开启 diarization 后服务端用会话级 SpeakerTracker 尽量保持 speaker_0 / speaker_1 跨多句一致；开启 speaker_match 并提供 group_id 后，最终段会尝试匹配注册声纹并返回姓名、分数和诊断摘要。</p>
+            <p>说话人编号一致性仅在单个 WebSocket 会话内维护。开启 diarization 后服务端用会话级 SpeakerTracker 尽量保持 speaker_0 / speaker_1 跨多句一致；开启 speaker_match 并提供 group_id 后，最终段先显示临时说话人，声纹匹配完成后再用 speaker.update 返回姓名、分数和诊断摘要。</p>
           </div>
         </div>
       </div>
@@ -1581,7 +1582,7 @@ async function deleteSpeaker(gid, name){
 /* ============ 实时转写 WebSocket ============ */
 let rtWs = null, rtAudioCtx = null, rtStream = null, rtProcessor = null, rtSource = null, rtRecording = false;
 let rtSentCount = 0, rtDeltaCount = 0, rtSegCount = 0;
-let rtSegments = [];           // 已确定的段：{speaker, name, start, end, text, emotion, events, score}
+let rtSegments = [];           // 已确定的段：{id, speaker, name, start, end, text, emotion, events, score}
 let rtRawMessages = [];
 let rtCurrentDelta = '';        // 当前正在说的中间文本
 let rtCurrentSpeaker = null;    // delta 阶段的临时说话人
@@ -1902,6 +1903,7 @@ function rtHandleMessage(msg){
       const text = sentence.text || '';
       if(!text) return;
       rtSegments.push({
+        id: sentence.segment_id || `local_${Date.now()}_${rtSegments.length}`,
         speaker: speakerId,
         name: speakerObj.name || msg.speaker_name || msg.name || null,
         start: sentence.start ?? msg.begin ?? msg.start ?? msg.timestamp,
@@ -1916,6 +1918,24 @@ function rtHandleMessage(msg){
     rtRender();
     return;
   }
+  if(msg.type === 'speaker.update'){
+    const updates = Array.isArray(msg.updates) ? msg.updates : [];
+    let changed = 0;
+    updates.forEach(update => {
+      const seg = rtSegments.find(s => s.id === update.segment_id);
+      if(!seg || !update.speaker) return;
+      const speakerObj = update.speaker;
+      seg.speaker = speakerObj.id ? String(speakerObj.id).replace('speaker_', '') : seg.speaker;
+      seg.name = speakerObj.name || seg.name;
+      seg.score = speakerObj.score ?? seg.score;
+      changed++;
+    });
+    if(changed){
+      rtRender();
+      toast(`已修正 ${changed} 条说话人标签`, 'success', 1800);
+    }
+    return;
+  }
   if(msg.type === 'error'){
     toast('服务端错误：'+(msg.message||msg.error||''),'error');
   }
@@ -1927,7 +1947,7 @@ function rtStop(){
   rtRecording = false;
   if(rtWs && rtWs.readyState === WebSocket.OPEN){
     try{ rtWs.send(JSON.stringify({type:'audio.end'})); }catch(_){}
-    setTimeout(()=>{ try{ rtWs.close(); }catch(_){} }, 300);
+    setTimeout(()=>{ try{ rtWs.close(); }catch(_){} }, 3500);
   }
   if(rtProcessor){ try{ rtProcessor.disconnect(); }catch(_){} rtProcessor = null; }
   if(rtSource){ try{ rtSource.disconnect(); }catch(_){} rtSource = null; }

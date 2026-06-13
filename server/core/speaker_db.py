@@ -310,14 +310,21 @@ class SpeakerTracker:
     匹配上则继承已有 ID，否则分配新 ID。
     """
 
-    def __init__(self, sv_model, threshold: float = 0.45,
-                 min_new_speaker_seconds: float = 1.2):
+    def __init__(self, sv_model, high_threshold: float = 0.72,
+                 low_threshold: float = 0.50,
+                 min_new_speaker_seconds: float = 1.2,
+                 create_speaker_seconds: float = 2.5,
+                 observe_hits: int = 2):
         self.next_id = 0
         self.centroids: dict[int, np.ndarray] = {}  # global_id → centroid
-        self.threshold = threshold
+        self.high_threshold = high_threshold
+        self.low_threshold = low_threshold
         self.sv_model = sv_model
         self.last_global_id: int | None = None
         self.min_new_speaker_seconds = min_new_speaker_seconds
+        self.create_speaker_seconds = create_speaker_seconds
+        self.observe_hits = observe_hits
+        self.observations: list[dict] = []
 
     def track(self, segments: list[dict], pcm_bytes: bytes) -> list[dict]:
         """重新分配一致的 speaker_id
@@ -369,7 +376,7 @@ class SpeakerTracker:
         # 对每个本地 spk，匹配全局已知说话人或分配新 ID
         spk_remap: dict[int, int] = {}
         for local_spk, emb in local_embeddings.items():
-            best_id, best_sim = None, self.threshold
+            best_id, best_sim = None, self.high_threshold
             for gid, centroid in self.centroids.items():
                 sim = 1.0 - cosine(emb, centroid)
                 if sim > best_sim:
@@ -379,7 +386,7 @@ class SpeakerTracker:
             if best_id is not None:
                 # 匹配到已知说话人：更新 centroid
                 self.centroids[best_id] = (
-                    self.centroids[best_id] * 0.7 + emb * 0.3
+                    self.centroids[best_id] * 0.85 + emb * 0.15
                 )
                 spk_remap[local_spk] = best_id
             elif (
@@ -400,13 +407,17 @@ class SpeakerTracker:
                 # 优先沿用上一位，避免一个人连续短句被切成 speaker_0/1/2。
                 spk_remap[local_spk] = self.last_global_id
             else:
-                # 新说话人
-                gid = self.next_id
-                self.next_id += 1
-                self.centroids[gid] = emb
-                spk_remap[local_spk] = gid
+                observed_id = self._observe_candidate(emb, local_durations.get(local_spk, 0))
+                if observed_id is not None:
+                    spk_remap[local_spk] = observed_id
+                elif self.last_global_id is not None and single_local_speaker:
+                    # 观察期内不立即创建新人，先沿用上一位，避免噪音制造 speaker。
+                    spk_remap[local_spk] = self.last_global_id
+                elif self.last_global_id is None and local_durations.get(local_spk, 0) >= self.create_speaker_seconds:
+                    spk_remap[local_spk] = self._create_speaker(emb)
 
-        # 如果短到提不出 embedding，单说话人片段也沿用上一位；首段则固定为 speaker_0。
+        # 如果短到提不出 embedding，单说话人片段也沿用上一位；首段先给临时 speaker_0，
+        # 但不写入 centroid，等后续足够长或重复出现后再正式建库。
         local_spks = {_segment_speaker_key(seg) for seg in segments}
         local_spks.discard(None)
         for local_spk in local_spks:
@@ -415,9 +426,7 @@ class SpeakerTracker:
             if self.last_global_id is not None and len(local_spks) == 1:
                 spk_remap[local_spk] = self.last_global_id
             elif len(local_spks) == 1:
-                gid = self.next_id
-                self.next_id += 1
-                spk_remap[local_spk] = gid
+                spk_remap[local_spk] = 0
 
         # 重映射
         for seg in segments:
@@ -427,3 +436,41 @@ class SpeakerTracker:
                 self.last_global_id = spk_remap[old_spk]
 
         return segments
+
+    def _create_speaker(self, emb: np.ndarray) -> int:
+        if self.last_global_id is not None and self.last_global_id not in self.centroids:
+            self.centroids[self.last_global_id] = emb
+            self.next_id = max(self.next_id, self.last_global_id + 1)
+            return self.last_global_id
+        gid = self.next_id
+        self.next_id += 1
+        self.centroids[gid] = emb
+        return gid
+
+    def _observe_candidate(self, emb: np.ndarray, duration: float) -> int | None:
+        from scipy.spatial.distance import cosine
+
+        if duration >= self.create_speaker_seconds:
+            return self._create_speaker(emb)
+
+        best_obs = None
+        best_sim = self.low_threshold
+        for obs in self.observations:
+            sim = 1.0 - cosine(emb, obs["embedding"])
+            if sim > best_sim:
+                best_sim = sim
+                best_obs = obs
+
+        if best_obs is None:
+            self.observations.append({"embedding": emb, "hits": 1})
+            if len(self.observations) > 8:
+                self.observations = self.observations[-8:]
+            return None
+
+        best_obs["embedding"] = best_obs["embedding"] * 0.85 + emb * 0.15
+        best_obs["hits"] += 1
+        if best_obs["hits"] >= self.observe_hits:
+            gid = self._create_speaker(best_obs["embedding"])
+            self.observations.remove(best_obs)
+            return gid
+        return None

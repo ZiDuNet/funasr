@@ -1,5 +1,6 @@
 """WebSocket 流式识别 — 支持 offline / online / 2pass + 说话人分离 + 情感 + 事件"""
 
+import asyncio
 import json
 import logging
 import os
@@ -8,7 +9,7 @@ from fastapi import WebSocket, WebSocketDisconnect
 
 from server.core.schemas import build_config
 from server.core.inference import (
-    infer_vad, infer_asr_online, infer_asr_offline_ws,
+    infer_vad, infer_asr_online, infer_asr_offline_ws, run_blocking,
 )
 from server.core.audio import pcm_duration_ms
 from server.core.postprocess import clean_text, extract_metadata
@@ -28,7 +29,7 @@ WS_PROTOCOL_DOC = {
             "发送 session.start JSON 配置帧",
             "持续发送 PCM 二进制音频帧",
             "停止录音时发送 audio.end JSON 控制帧",
-            "服务端返回 session.started、transcript.delta、transcript.segment 或 error",
+            "服务端返回 session.started、transcript.delta、transcript.segment、speaker.update 或 error",
         ],
     },
     "browser_ui": {
@@ -66,7 +67,8 @@ WS_PROTOCOL_DOC = {
     "events": {
         "session.started": "配置已生效，返回本次会话模式、音频格式和能力开关。",
         "transcript.delta": "online/2pass 的实时中间文本，用于一边说一边出字。",
-        "transcript.segment": "offline/2pass 的最终片段，VAD 断句后返回，可包含说话人、声纹、情感、事件、标点。",
+        "transcript.segment": "offline/2pass 的最终片段，VAD 断句后先返回文本和临时说话人。",
+        "speaker.update": "异步声纹匹配完成后的说话人修正事件，前端按 segment_id 更新已有文本标签。",
         "error": "配置或推理错误。",
     },
     "responses": {
@@ -78,11 +80,15 @@ WS_PROTOCOL_DOC = {
             "speaker_match": "声纹匹配诊断摘要；包含声纹组人数、匹配/未匹配数量、每个匿名说话人的原因和最高候选分数",
             "features.warnings": "能力未生效或参数不足时的诊断提示，例如缺少 speaker_group",
         },
+        "speaker.update": {
+            "updates": "数组；每项包含 segment_id 和修正后的 speaker.id/name/score/group_id",
+            "speaker_match": "本次异步声纹匹配诊断摘要",
+        },
     },
     "modes": {
         "online": "只返回 transcript.delta，延迟低；不返回说话人、声纹、情感、事件、完整标点。",
         "offline": "VAD 断句后返回 transcript.segment；可返回增强字段，但没有实时中间文本。",
-        "2pass": "先返回 transcript.delta，断句后返回 transcript.segment 修正结果；推荐会议录音使用。",
+        "2pass": "先返回 transcript.delta，断句后返回 transcript.segment；声纹命名通过 speaker.update 异步修正。",
     },
     "speaker_consistency": (
         "说话人编号一致性只在单个 WebSocket 会话内维护。开启 diarization 后，服务端会用会话级 "
@@ -190,8 +196,13 @@ def _milliseconds_to_seconds(value) -> float:
     return round(number / 1000.0, 3)
 
 
+def _segment_id(sequence: int, sentence_id: int) -> str:
+    return f"seg_{sequence}_{sentence_id}"
+
+
 def _build_ws_canonical(rec: dict, sentence_info: list | None,
-                        state: dict, audio_duration: float) -> dict:
+                        state: dict, audio_duration: float,
+                        segment_sequence: int = 0) -> dict:
     raw_text = rec.get("text", "")
     text = clean_text(raw_text)
     top_metadata = extract_metadata(raw_text)
@@ -200,6 +211,7 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
         seg_text = seg.get("text") or seg.get("sentence", "")
         seg_metadata = extract_metadata(seg_text)
         item = {
+            "segment_id": _segment_id(segment_sequence, idx),
             "id": idx,
             "paragraph_id": 0,
             "start": _milliseconds_to_seconds(seg.get("start")),
@@ -227,6 +239,7 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
 
     if not sentences and text:
         sentences.append({
+            "segment_id": _segment_id(segment_sequence, 0),
             "id": 0,
             "paragraph_id": 0,
             "start": 0.0,
@@ -261,6 +274,19 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
     if state.get("speaker_group"):
         canonical["speaker_group"] = state["speaker_group"]
     return canonical
+
+
+def _match_segments_sync(sentence_info: list[dict], audio_in: bytes,
+                         group_id: str, sv_model) -> tuple[list[dict], dict]:
+    """Run speaker matching in the shared executor."""
+    segments = [dict(seg) for seg in sentence_info]
+    for si in segments:
+        if "spk" in si:
+            si["speaker_id"] = si["spk"]
+    summary = match_segments(segments, audio_in, group_id, sv_model)
+    for si in segments:
+        si.pop("speaker_id", None)
+    return segments, summary
 
 
 def register_ws_endpoint(app):
@@ -328,10 +354,156 @@ def register_ws_endpoint(app):
 
         # 跨段说话人追踪器（流式中维护全局 speaker_id 一致性）
         speaker_tracker = None
+        send_lock = asyncio.Lock()
+        speaker_lock = asyncio.Lock()
+        offline_queue: asyncio.Queue[tuple[bytes, int] | None] = asyncio.Queue()
+        background_tasks: set[asyncio.Task] = set()
+        segment_sequence = 0
 
         frames, frames_asr, frames_asr_online = [], [], []
         speech_start, speech_end_i = False, -1
         partial_text_online = ""
+        end_frame_dispatched = False
+
+        async def send_json(payload: dict):
+            async with send_lock:
+                await websocket.send_json(payload)
+
+        def remember_task(task: asyncio.Task):
+            background_tasks.add(task)
+            task.add_done_callback(background_tasks.discard)
+
+        async def enqueue_offline_segment(audio_in: bytes):
+            nonlocal segment_sequence
+            segment_sequence += 1
+            await offline_queue.put((audio_in, segment_sequence))
+
+        async def process_offline_segment(audio_in: bytes, sequence: int):
+            nonlocal speaker_tracker
+            try:
+                rec = await infer_asr_offline_ws(
+                    audio_in, state["status_asr"],
+                    with_spk=state.get("speaker_diarization", False),
+                )
+                text = rec.get("text", "")
+                if not text:
+                    return
+
+                mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]
+                sentence_info = rec.get("sentence_info")
+                feature_warnings = []
+                registry = None
+
+                if state.get("speaker_diarization") and sentence_info:
+                    registry = ModelRegistry.get_instance()
+                    async with speaker_lock:
+                        if speaker_tracker is None:
+                            speaker_tracker = SpeakerTracker(registry.get_aux("sv"))
+                        sentence_info = speaker_tracker.track(sentence_info, audio_in)
+                elif state.get("speaker_match"):
+                    feature_warnings.append({
+                        "code": "diarization_unavailable",
+                        "feature": "speaker_match",
+                        "message": "本段未返回可用于声纹匹配的 sentence_info/spk，已跳过声纹匹配。",
+                    })
+
+                if state.get("speaker_match") and not state.get("speaker_group"):
+                    feature_warnings.append({
+                        "code": "missing_speaker_group",
+                        "feature": "speaker_match",
+                        "message": "speaker_match 已开启，但未提供 speaker_group/group_id，已跳过声纹匹配。",
+                    })
+
+                canonical = _build_ws_canonical(
+                    rec,
+                    sentence_info,
+                    state,
+                    pcm_duration_ms(audio_in, fs=state["audio_fs"]) / 1000.0,
+                    segment_sequence=sequence,
+                )
+                resp = {
+                    "type": "transcript.segment",
+                    "mode": mode_label,
+                    "text": text,
+                    "clean_text": clean_text(text),
+                    "wav_name": state["wav_name"],
+                    "is_final": True,
+                    "timestamp": rec.get("timestamp"),
+                    "sentence_info": sentence_info,
+                    "features": {
+                        "requested": state["requested_features"],
+                        "applied": [
+                            "asr",
+                            "sentence_timestamps",
+                            "paragraphs",
+                            *(["diarization"] if state.get("speaker_diarization") else []),
+                            *(
+                                ["speaker_match"]
+                                if state.get("speaker_match") and state.get("speaker_group")
+                                else []
+                            ),
+                            *(["emotion"] if state.get("emotion") else []),
+                            *(["events"] if state.get("events") else []),
+                            *(["punctuation"] if state.get("punctuation") else []),
+                        ],
+                        "warnings": feature_warnings,
+                    },
+                    **canonical,
+                }
+                if state.get("raw"):
+                    resp["raw"] = rec
+                await send_json(resp)
+
+                if (
+                    state.get("speaker_match")
+                    and state.get("speaker_group")
+                    and state.get("speaker_diarization")
+                    and sentence_info
+                ):
+                    registry = registry or ModelRegistry.get_instance()
+                    matched_info, speaker_match_summary = await run_blocking(
+                        _match_segments_sync,
+                        sentence_info,
+                        audio_in,
+                        state["speaker_group"],
+                        registry.get_aux("sv"),
+                        sem=registry.sem_sv,
+                    )
+                    matched_canonical = _build_ws_canonical(
+                        rec,
+                        matched_info,
+                        state,
+                        pcm_duration_ms(audio_in, fs=state["audio_fs"]) / 1000.0,
+                        segment_sequence=sequence,
+                    )
+                    updates = []
+                    for sentence in matched_canonical.get("sentences", []):
+                        speaker = sentence.get("speaker")
+                        if not speaker:
+                            continue
+                        updates.append({
+                            "segment_id": sentence["segment_id"],
+                            "speaker": speaker,
+                        })
+                    if updates:
+                        await send_json({
+                            "type": "speaker.update",
+                            "mode": mode_label,
+                            "updates": updates,
+                            "speaker_match": speaker_match_summary,
+                        })
+            except Exception as e:
+                logger.error(f"离线 ASR 错误: {e}")
+
+        async def offline_worker():
+            while True:
+                item = await offline_queue.get()
+                if item is None:
+                    break
+                audio_in, sequence = item
+                await process_offline_segment(audio_in, sequence)
+
+        remember_task(asyncio.create_task(offline_worker()))
 
         try:
             while True:
@@ -346,14 +518,14 @@ def register_ws_endpoint(app):
                         try:
                             _apply_config_frame(state, cfg)
                         except Exception as exc:
-                            await websocket.send_json({
+                            await send_json({
                                 "type": "error",
                                 "code": "invalid_config",
                                 "message": str(exc),
                             })
                             continue
                         if cfg.get("type") == "session.start":
-                            await websocket.send_json({
+                            await send_json({
                                 "type": "session.started",
                                 "mode": state["mode"],
                                 "audio": {
@@ -371,6 +543,12 @@ def register_ws_endpoint(app):
                                     "raw": state["raw"],
                                 },
                             })
+                        elif cfg.get("type") == "audio.end":
+                            audio_in = b"".join(frames_asr)
+                            if state["mode"] in ("2pass", "offline") and len(audio_in) > 0:
+                                await enqueue_offline_segment(audio_in)
+                                end_frame_dispatched = True
+                            frames_asr, frames_asr_online = [], []
 
                     elif "bytes" in msg:
                         pcm = msg["bytes"]
@@ -404,7 +582,7 @@ def register_ws_endpoint(app):
                                         if not (state["mode"] == "2pass" and state["status_asr_online"].get("is_final")):
                                             partial_text_online = rec["text"]
                                             mode_label = "2pass-online" if "2pass" in state["mode"] else state["mode"]
-                                            await websocket.send_json({
+                                            await send_json({
                                                 "type": "transcript.delta",
                                                 "mode": mode_label,
                                                 "text": rec["text"],
@@ -414,6 +592,10 @@ def register_ws_endpoint(app):
                                 except Exception as e:
                                     logger.error(f"流式 ASR 错误: {e}")
                             frames_asr_online = []
+
+                        if state["mode"] == "online":
+                            frames = frames[-20:]
+                            continue
 
                         if speech_start:
                             frames_asr.append(pcm)
@@ -436,116 +618,8 @@ def register_ws_endpoint(app):
                         if (speech_end_i != -1) or (not state["is_speaking"]):
                             if state["mode"] in ("2pass", "offline"):
                                 audio_in = b"".join(frames_asr)
-                                if len(audio_in) > 0:
-                                    try:
-                                        # 离线 ASR（支持 speaker_diarization）
-                                        rec = await infer_asr_offline_ws(
-                                            audio_in, state["status_asr"],
-                                            with_spk=state.get("speaker_diarization", False),
-                                        )
-                                        text = rec.get("text", "")
-
-                                        if text:
-                                            mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]
-                                            # ── 说话人处理 ──
-                                            sentence_info = rec.get("sentence_info")
-                                            speaker_match_summary = None
-                                            feature_warnings = []
-                                            if state.get("speaker_diarization") and sentence_info:
-                                                registry = ModelRegistry.get_instance()
-
-                                                # 1. 跨段一致性追踪（全局 speaker_id）
-                                                if speaker_tracker is None:
-                                                    speaker_tracker = SpeakerTracker(
-                                                        registry.get_aux("sv"))
-                                                sentence_info = speaker_tracker.track(
-                                                    sentence_info, audio_in)
-
-                                                # 2. 声纹匹配（speaker_match + speaker_group → 注册名）
-                                                if state.get("speaker_match") and state.get("speaker_group"):
-                                                    for si in sentence_info:
-                                                        if "spk" in si:
-                                                            si["speaker_id"] = si["spk"]
-                                                    speaker_match_summary = match_segments(
-                                                        sentence_info, audio_in,
-                                                        state["speaker_group"],
-                                                        registry.get_aux("sv"),
-                                                    )
-                                                    # 清理临时字段
-                                                    for si in sentence_info:
-                                                        si.pop("speaker_id", None)
-                                                elif state.get("speaker_match"):
-                                                    feature_warnings.append({
-                                                        "code": "missing_speaker_group",
-                                                        "feature": "speaker_match",
-                                                        "message": "speaker_match 已开启，但未提供 speaker_group/group_id，已跳过声纹匹配。",
-                                                    })
-                                            elif state.get("speaker_match"):
-                                                feature_warnings.append({
-                                                    "code": "diarization_unavailable",
-                                                    "feature": "speaker_match",
-                                                    "message": "本段未返回可用于声纹匹配的 sentence_info/spk，已跳过声纹匹配。",
-                                                })
-
-                                            canonical = _build_ws_canonical(
-                                                rec,
-                                                sentence_info,
-                                                state,
-                                                pcm_duration_ms(audio_in, fs=state["audio_fs"]) / 1000.0,
-                                            )
-                                            resp = {
-                                                "type": "transcript.segment",
-                                                "mode": mode_label,
-                                                "text": text,                    # 原始文本（含标签）
-                                                "clean_text": clean_text(text),  # 清洗后纯文本
-                                                "wav_name": state["wav_name"],
-                                                "is_final": True,
-                                                "timestamp": rec.get("timestamp"),
-                                                "sentence_info": sentence_info,
-                                                "features": {
-                                                    "requested": state["requested_features"],
-                                                    "applied": [
-                                                        "asr",
-                                                        "sentence_timestamps",
-                                                        "paragraphs",
-                                                        *(
-                                                            ["diarization"]
-                                                            if state.get("speaker_diarization")
-                                                            else []
-                                                        ),
-                                                        *(
-                                                            ["speaker_match"]
-                                                            if state.get("speaker_match")
-                                                            and state.get("speaker_group")
-                                                            else []
-                                                        ),
-                                                        *(
-                                                            ["emotion"]
-                                                            if state.get("emotion")
-                                                            else []
-                                                        ),
-                                                        *(
-                                                            ["events"]
-                                                            if state.get("events")
-                                                            else []
-                                                        ),
-                                                        *(
-                                                            ["punctuation"]
-                                                            if state.get("punctuation")
-                                                            else []
-                                                        ),
-                                                    ],
-                                                    "warnings": feature_warnings,
-                                                },
-                                                **canonical,
-                                            }
-                                            if speaker_match_summary is not None:
-                                                resp["speaker_match"] = speaker_match_summary
-                                            if state.get("raw"):
-                                                resp["raw"] = rec
-                                            await websocket.send_json(resp)
-                                    except Exception as e:
-                                        logger.error(f"离线 ASR 错误: {e}")
+                                if len(audio_in) > 0 and not end_frame_dispatched:
+                                    await enqueue_offline_segment(audio_in)
 
                             frames_asr, frames_asr_online = [], []
                             speech_start = False
@@ -566,3 +640,7 @@ def register_ws_endpoint(app):
             logger.info("WebSocket 断开")
         except Exception as e:
             logger.error(f"WebSocket 错误: {e}")
+        finally:
+            await offline_queue.put(None)
+            for task in list(background_tasks):
+                task.cancel()
