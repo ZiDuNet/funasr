@@ -49,7 +49,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 静态文件（CSS/JS/HTML/图片）
-        if (path.startswith(("/ui", "/gradio_api", "/web/", "/css/", "/js/")) or path == "/"
+        if (path.startswith(("/ui", "/gradio_api", "/web/", "/css/", "/js/")) or path in {"/", "/web", "/webui"}
                 or path.endswith((".html", ".css", ".js", ".png", ".ico", ".svg"))):
             return await call_next(request)
 
@@ -156,6 +156,18 @@ def create_app() -> FastAPI:
 
     web_dir = Path(__file__).resolve().parent.parent / "web"
     if web_dir.exists():
+        @app.get("/web", include_in_schema=False)
+        async def web_page():
+            return RedirectResponse(url="/web/index.html")
+
+        @app.get("/webui", include_in_schema=False)
+        async def webui_page():
+            return RedirectResponse(url="/web/index.html")
+
+        @app.get("/index.html", include_in_schema=False)
+        async def index_html_page():
+            return RedirectResponse(url="/web/index.html")
+
         app.mount("/web", StaticFiles(directory=str(web_dir), html=True), name="web")
         logger.info("原生 WebUI 已挂载: /web")
     else:
@@ -171,6 +183,6 @@ def create_app() -> FastAPI:
 
     @app.get("/", include_in_schema=False)
     async def root():
-        return RedirectResponse(url="/ui")
+        return RedirectResponse(url="/web/index.html")
 
     return app
