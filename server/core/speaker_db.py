@@ -310,11 +310,14 @@ class SpeakerTracker:
     匹配上则继承已有 ID，否则分配新 ID。
     """
 
-    def __init__(self, sv_model, threshold: float = 0.6):
+    def __init__(self, sv_model, threshold: float = 0.45,
+                 min_new_speaker_seconds: float = 1.2):
         self.next_id = 0
         self.centroids: dict[int, np.ndarray] = {}  # global_id → centroid
         self.threshold = threshold
         self.sv_model = sv_model
+        self.last_global_id: int | None = None
+        self.min_new_speaker_seconds = min_new_speaker_seconds
 
     def track(self, segments: list[dict], pcm_bytes: bytes) -> list[dict]:
         """重新分配一致的 speaker_id
@@ -333,14 +336,11 @@ class SpeakerTracker:
         from scipy.spatial.distance import cosine
 
         bytes_per_ms = 32000 / 1000
-        # 当前段内的本地 spk → 新 embedding
-        local_embeddings: dict[int, np.ndarray] = {}
+        local_audio: dict = {}
 
         for seg in segments:
-            spk = seg.get("spk")
+            spk = _segment_speaker_key(seg)
             if spk is None:
-                continue
-            if spk in local_embeddings:
                 continue
 
             start_byte = int(seg.get("start", 0) * bytes_per_ms)
@@ -349,9 +349,18 @@ class SpeakerTracker:
 
             if len(seg_audio) < 1600:
                 continue
+            local_audio.setdefault(spk, []).append(seg_audio)
 
+        single_local_speaker = len(local_audio) <= 1
+        local_embeddings: dict = {}
+        local_durations: dict = {}
+
+        # 当前段内同一个本地 spk 的多个句子先合并再提声纹，短句会更稳。
+        for spk, chunks in local_audio.items():
+            audio = b"".join(chunks)
+            local_durations[spk] = len(audio) / 32000
             try:
-                emb = extract_embedding(self.sv_model, seg_audio)
+                emb = extract_embedding(self.sv_model, audio)
                 if emb is not None:
                     local_embeddings[spk] = np.array(emb, dtype=np.float32)
             except Exception as e:
@@ -373,6 +382,23 @@ class SpeakerTracker:
                     self.centroids[best_id] * 0.7 + emb * 0.3
                 )
                 spk_remap[local_spk] = best_id
+            elif (
+                self.last_global_id is not None
+                and self.last_global_id not in self.centroids
+                and single_local_speaker
+            ):
+                # 前面只有短句，先沿用了 speaker_0；一旦拿到可用 embedding，
+                # 用它初始化上一位说话人的 centroid，避免下一句跳到 speaker_1。
+                self.centroids[self.last_global_id] = emb
+                spk_remap[local_spk] = self.last_global_id
+            elif (
+                self.last_global_id is not None
+                and single_local_speaker
+                and local_durations.get(local_spk, 0) < self.min_new_speaker_seconds
+            ):
+                # 流式会议里短句声纹很不稳定。单个本地说话人的短片段不新建 speaker，
+                # 优先沿用上一位，避免一个人连续短句被切成 speaker_0/1/2。
+                spk_remap[local_spk] = self.last_global_id
             else:
                 # 新说话人
                 gid = self.next_id
@@ -380,10 +406,24 @@ class SpeakerTracker:
                 self.centroids[gid] = emb
                 spk_remap[local_spk] = gid
 
+        # 如果短到提不出 embedding，单说话人片段也沿用上一位；首段则固定为 speaker_0。
+        local_spks = {_segment_speaker_key(seg) for seg in segments}
+        local_spks.discard(None)
+        for local_spk in local_spks:
+            if local_spk in spk_remap:
+                continue
+            if self.last_global_id is not None and len(local_spks) == 1:
+                spk_remap[local_spk] = self.last_global_id
+            elif len(local_spks) == 1:
+                gid = self.next_id
+                self.next_id += 1
+                spk_remap[local_spk] = gid
+
         # 重映射
         for seg in segments:
-            old_spk = seg.get("spk")
+            old_spk = _segment_speaker_key(seg)
             if old_spk is not None and old_spk in spk_remap:
                 seg["spk"] = spk_remap[old_spk]
+                self.last_global_id = spk_remap[old_spk]
 
         return segments
