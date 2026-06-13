@@ -213,7 +213,9 @@ def register_ws_endpoint(app):
             "status_asr_online": {
                 "cache": {},
                 "is_final": False,
-                "chunk_size": [5, 10, 5],
+                "chunk_size": [0, 10, 5],
+                "encoder_chunk_look_back": 4,
+                "decoder_chunk_look_back": 1,
             },
             "status_vad": {"cache": {}, "is_final": False, "max_single_segment_time": 15000},
             "status_punc": {"cache": {}},

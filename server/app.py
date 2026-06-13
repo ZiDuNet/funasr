@@ -2,7 +2,7 @@
 
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import AsyncExitStack, asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
@@ -69,37 +69,42 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    os.makedirs(DATA_DIR, exist_ok=True)
+    async with AsyncExitStack() as stack:
+        mcp_app = getattr(app.state, "mcp_app", None)
+        if mcp_app is not None and hasattr(mcp_app, "lifespan"):
+            await stack.enter_async_context(mcp_app.lifespan(app))
 
-    registry = ModelRegistry.get_instance()
-    app.state.registry = registry
-    logger.info(f"设备: {registry.device}, 模型: {MODEL_NAME}")
+        os.makedirs(DATA_DIR, exist_ok=True)
 
-    if _API_TOKEN:
-        logger.info(f"API Token 认证: 已启用")
-    else:
-        logger.warning("API Token 认证: 未启用（API_TOKEN 为空），建议生产环境设置")
+        registry = ModelRegistry.get_instance()
+        app.state.registry = registry
+        logger.info(f"设备: {registry.device}, 模型: {MODEL_NAME}")
 
-    if PRELOAD_ALL:
-        registry.preload()
-    else:
-        logger.info("懒加载模式，模型将在首次请求时加载")
+        if _API_TOKEN:
+            logger.info(f"API Token 认证: 已启用")
+        else:
+            logger.warning("API Token 认证: 未启用（API_TOKEN 为空），建议生产环境设置")
 
-    task_manager = TaskManager()
-    await task_manager.start()
-    tasks_api.set_task_manager(task_manager)
-    try:
-        from server.api.gradio_ui import set_task_manager as set_gradio_task_manager
-        set_gradio_task_manager(task_manager)
-    except Exception as e:
-        logger.warning(f"Gradio 任务管理器注入失败: {e}")
-    app.state.task_manager = task_manager
+        if PRELOAD_ALL:
+            registry.preload()
+        else:
+            logger.info("懒加载模式，模型将在首次请求时加载")
 
-    logger.info("FunASR All-in-One 服务就绪！")
-    yield
-    await task_manager.stop()
-    registry.shutdown()
-    logger.info("服务已关闭")
+        task_manager = TaskManager()
+        await task_manager.start()
+        tasks_api.set_task_manager(task_manager)
+        try:
+            from server.api.gradio_ui import set_task_manager as set_gradio_task_manager
+            set_gradio_task_manager(task_manager)
+        except Exception as e:
+            logger.warning(f"Gradio 任务管理器注入失败: {e}")
+        app.state.task_manager = task_manager
+
+        logger.info("FunASR All-in-One 服务就绪！")
+        yield
+        await task_manager.stop()
+        registry.shutdown()
+        logger.info("服务已关闭")
 
 
 def create_app() -> FastAPI:
@@ -135,7 +140,9 @@ def create_app() -> FastAPI:
 
     if ENABLE_MCP:
         from server.mcp_server import get_mcp_app
-        app.mount("/mcp", get_mcp_app())
+        mcp_app = get_mcp_app()
+        app.state.mcp_app = mcp_app
+        app.mount("/mcp", mcp_app)
 
     try:
         import gradio as gr

@@ -88,6 +88,11 @@ class RealtimeSession:
         self.finals: list[dict] = []
         self.error = ""
         self.last_event: dict = {}
+        self.last_render = ""
+        self.last_event_json = "{}"
+        self.sent_samples = 0
+        self.pending_pcm = b""
+        self.frame_bytes = 1920
 
     async def connect(self, *, mode: str, hotwords: str,
                       spk: bool, speaker_match: bool, speaker_group: str,
@@ -100,7 +105,7 @@ class RealtimeSession:
         cfg = {
             "type": "session.start",
             "mode": mode,
-            "chunk_size": [5, 10, 5],
+            "chunk_size": [0, 10, 5],
             "chunk_interval": 10,
             "wav_name": "gradio",
             "wav_format": "pcm",
@@ -123,6 +128,7 @@ class RealtimeSession:
         }
         if hotwords:
             cfg["options"]["hotwords"] = hotwords
+        self.frame_bytes = int(16000 * 2 * (cfg["chunk_size"][1] * 60 / cfg["chunk_interval"]) / 1000)
         await self.ws.send(json.dumps(cfg))
         self.reader_task = asyncio.create_task(self._reader())
 
@@ -160,11 +166,29 @@ class RealtimeSession:
         if self.ws and pcm_bytes:
             await self.ws.send(pcm_bytes)
 
+    async def send_audio_array(self, sample_rate: int, data: np.ndarray) -> None:
+        """Send only new audio, split into FunASR-style 60ms PCM frames."""
+        if data is None:
+            return
+        data = np.asarray(data, dtype=np.float32).flatten()
+        if len(data) <= self.sent_samples:
+            return
+        new_data = data[self.sent_samples:]
+        self.sent_samples = len(data)
+        self.pending_pcm += numpy_to_pcm16k(sample_rate, new_data)
+        while len(self.pending_pcm) >= self.frame_bytes:
+            frame = self.pending_pcm[:self.frame_bytes]
+            self.pending_pcm = self.pending_pcm[self.frame_bytes:]
+            await self.send_pcm(frame)
+
     async def stop(self) -> None:
         if not self.ws:
             return
         try:
-            await self.ws.send(json.dumps({"is_speaking": False}))
+            if self.pending_pcm:
+                await self.send_pcm(self.pending_pcm)
+                self.pending_pcm = b""
+            await self.ws.send(json.dumps({"type": "audio.end"}))
             # 给服务端时间回最后一帧离线结果
             await asyncio.sleep(1.5)
         except Exception:
@@ -631,6 +655,18 @@ def _format_realtime(snapshot: dict) -> str:
     return "\n".join(parts) + partial_line + err_line if parts else (partial_line.lstrip() or err_line or "等待录音...")
 
 
+def _realtime_outputs(session: RealtimeSession, status: str, *, force: bool = False):
+    snapshot = session.snapshot()
+    rendered = _format_realtime(snapshot)
+    event_json = _json_dumps(snapshot.get("last_event") or {})
+
+    output = rendered if force or rendered != session.last_render else gr.skip()
+    raw = event_json if force or event_json != session.last_event_json else gr.skip()
+    session.last_render = rendered
+    session.last_event_json = event_json
+    return output, session, status, raw
+
+
 async def realtime_stream(audio, session: RealtimeSession, mode, hotwords,
                           spk, speaker_match, speaker_group,
                           emo, events, punctuation):
@@ -644,13 +680,7 @@ async def realtime_stream(audio, session: RealtimeSession, mode, hotwords,
     if audio is None:
         if session.ws:
             await session.stop()
-        snapshot = session.snapshot()
-        return (
-            _format_realtime(snapshot),
-            session,
-            "已停止",
-            _json_dumps(snapshot.get("last_event") or {}),
-        )
+        return _realtime_outputs(session, "已停止", force=True)
 
     sample_rate, data = audio
     try:
@@ -665,19 +695,12 @@ async def realtime_stream(audio, session: RealtimeSession, mode, hotwords,
                 events=bool(events),
                 punctuation=bool(punctuation),
             )
-        pcm = numpy_to_pcm16k(int(sample_rate or 16000), data)
-        await session.send_pcm(pcm)
+        await session.send_audio_array(int(sample_rate or 16000), data)
     except Exception as exc:
         session.error = str(exc)
 
     status = "录音中…" if session.ws and not session.error else f"错误：{session.error}"
-    snapshot = session.snapshot()
-    return (
-        _format_realtime(snapshot),
-        session,
-        status,
-        _json_dumps(snapshot.get("last_event") or {}),
-    )
+    return _realtime_outputs(session, status)
 
 
 def realtime_reset():
@@ -1127,6 +1150,7 @@ def build_gradio_app(task_manager: TaskManager | None = None):
                     rt_mic = gr.Audio(
                         sources=["microphone"],
                         streaming=True,
+                        stream_every=0.5,
                         type="numpy",
                         label="麦克风",
                         waveform_options=gr.WaveformOptions(show_recording_waveform=True),
