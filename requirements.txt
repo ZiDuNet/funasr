@@ -7,6 +7,7 @@ python-multipart
 aiofiles
 httpx
 fastmcp>=2.3
+gradio>=4.44
 numpy
 scipy
 # ── 可选模型依赖（按需取消注释）──────────────

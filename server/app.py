@@ -5,8 +5,8 @@ import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -29,7 +29,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
     - API_TOKEN 为空时不做认证（开发模式）
     - /health、/docs、静态文件不需要认证
     - API 路由通过 Authorization: Bearer <token> 认证
-    - WebSocket 通过 ?token=xxx 查询参数认证
+    - WebSocket 认证在 WebSocket endpoint 内通过 ?token=xxx 处理
     """
 
     # 无需认证的路径
@@ -47,16 +47,9 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 静态文件（CSS/JS/HTML/图片）
-        if (path.startswith(("/css/", "/js/")) or path == "/"
+        if (path.startswith(("/ui", "/gradio_api", "/css/", "/js/")) or path == "/"
                 or path.endswith((".html", ".css", ".js", ".png", ".ico", ".svg"))):
             return await call_next(request)
-
-        # WebSocket：从查询参数获取 token
-        if path == "/ws":
-            token = request.query_params.get("token", "")
-            if token == _API_TOKEN:
-                return await call_next(request)
-            return JSONResponse({"error": "Unauthorized"}, status_code=401)
 
         # API 路由：从 Header 或查询参数获取 token
         auth = request.headers.get("Authorization", "")
@@ -69,7 +62,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         return JSONResponse(
-            {"error": "Unauthorized", "detail": "Invalid or missing API token"},
+            {"error": "unauthorized", "detail": "API Token 缺失或错误"},
             status_code=401,
         )
 
@@ -95,6 +88,11 @@ async def lifespan(app: FastAPI):
     task_manager = TaskManager()
     await task_manager.start()
     tasks_api.set_task_manager(task_manager)
+    try:
+        from server.api.gradio_ui import set_task_manager as set_gradio_task_manager
+        set_gradio_task_manager(task_manager)
+    except Exception as e:
+        logger.warning(f"Gradio 任务管理器注入失败: {e}")
     app.state.task_manager = task_manager
 
     logger.info("FunASR All-in-One 服务就绪！")
@@ -106,8 +104,8 @@ async def lifespan(app: FastAPI):
 
 def create_app() -> FastAPI:
     app = FastAPI(
-        title="FunASR All-in-One",
-        description=f"统一语音识别 ({MODEL_NAME}) — OpenAI API + HTTP REST + WebSocket + MCP + 声纹",
+        title="FunASR All-in-One 统一语音识别服务",
+        description=f"统一语音识别 ({MODEL_NAME})：标准 API、OpenAI 兼容 API、实时流式、声纹组、MCP、Gradio WebUI",
         version="1.0.0", lifespan=lifespan,
     )
 
@@ -124,12 +122,10 @@ def create_app() -> FastAPI:
     app.add_middleware(TokenAuthMiddleware)
 
     from server.api.openai_api import router as openai_router
-    from server.api.http_rest import router as rest_router
     from server.api.tasks import router as task_router
     from server.api.speakers import router as speaker_router
 
     app.include_router(openai_router)
-    app.include_router(rest_router)
     app.include_router(task_router)
     app.include_router(speaker_router)
 
@@ -141,8 +137,16 @@ def create_app() -> FastAPI:
         from server.mcp_server import get_mcp_app
         app.mount("/mcp", get_mcp_app())
 
-    web_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "web")
-    if os.path.isdir(web_dir):
-        app.mount("/", StaticFiles(directory=web_dir, html=True), name="web")
+    try:
+        import gradio as gr
+        from server.api.gradio_ui import build_gradio_app
+        gr.mount_gradio_app(app, build_gradio_app(), path="/ui")
+        logger.info("Gradio WebUI 已挂载: /ui")
+    except Exception as e:
+        logger.error(f"Gradio WebUI 挂载失败: {e}")
+
+    @app.get("/", include_in_schema=False)
+    async def root():
+        return RedirectResponse(url="/ui")
 
     return app

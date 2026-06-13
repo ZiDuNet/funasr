@@ -80,16 +80,17 @@
     <table>
       <thead><tr><th>端点</th><th>方法</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td><code>/v1/audio/transcriptions</code></td><td>POST</td><td>OpenAI 兼容同步转写</td></tr>
+        <tr><td><code>/api/v1/transcriptions</code></td><td>POST</td><td>标准同步转写</td></tr>
         <tr><td><code>/v1/models</code></td><td>GET</td><td>列出可用模型</td></tr>
+        <tr><td><code>/v1/audio/transcriptions</code></td><td>POST</td><td>OpenAI 兼容同步转写</td></tr>
+        <tr><td><code>/api/v1/models</code></td><td>GET</td><td>模型能力矩阵</td></tr>
+        <tr><td><code>/api/v1/capabilities</code></td><td>GET</td><td>当前模型能力</td></tr>
         <tr><td><code>/health</code></td><td>GET</td><td>健康检查</td></tr>
-        <tr><td><code>/recognition</code></td><td>POST</td><td>HTTP REST 同步转写</td></tr>
-        <tr><td><code>/api/tasks/submit</code></td><td>POST</td><td>提交异步转写任务</td></tr>
-        <tr><td><code>/api/tasks</code></td><td>GET</td><td>任务列表</td></tr>
-        <tr><td><code>/api/tasks/{id}</code></td><td>GET</td><td>查询任务结果</td></tr>
-        <tr><td><code>/api/speakers/register</code></td><td>POST</td><td>注册声纹</td></tr>
-        <tr><td><code>/api/speakers</code></td><td>GET</td><td>声纹组列表</td></tr>
-        <tr><td><code>/ws</code></td><td>WebSocket</td><td>流式实时识别</td></tr>
+        <tr><td><code>/api/v1/transcription-jobs</code></td><td>POST/GET</td><td>异步转写任务</td></tr>
+        <tr><td><code>/api/v1/transcription-jobs/{id}</code></td><td>GET/DELETE</td><td>查询/删除任务</td></tr>
+        <tr><td><code>/api/v1/speaker-groups</code></td><td>POST/GET</td><td>创建/列出声纹组</td></tr>
+        <tr><td><code>/api/v1/speaker-groups/{id}/speakers</code></td><td>POST/GET</td><td>注册/列出说话人</td></tr>
+        <tr><td><code>/api/v1/realtime/transcriptions</code></td><td>WebSocket</td><td>流式实时识别</td></tr>
         <tr><td><code>/mcp</code></td><td>Streamable HTTP</td><td>MCP 工具接入</td></tr>
         <tr><td><code>/docs</code></td><td>GET</td><td>Swagger API 文档</td></tr>
       </tbody>
@@ -102,15 +103,16 @@
       <thead><tr><th>参数</th><th>类型</th><th>默认</th><th>说明</th><th>支持模型</th></tr></thead>
       <tbody>
         <tr><td><code>language</code></td><td>string</td><td>auto</td><td>语言提示</td><td>全部</td></tr>
-        <tr><td><code>speaker_diarization</code></td><td>bool</td><td>false</td><td>说话人分离</td><td>SenseVoice / Paraformer</td></tr>
-        <tr><td><code>emotion</code></td><td>bool</td><td>false</td><td>情感标签</td><td>SenseVoice</td></tr>
+        <tr><td><code>diarization</code></td><td>bool</td><td>false</td><td>说话人分离</td><td>全部（cam++）</td></tr>
+        <tr><td><code>speaker_match</code></td><td>bool</td><td>false</td><td>声纹组匹配</td><td>全部（cam++ + sv）</td></tr>
+        <tr><td><code>emotion</code></td><td>bool</td><td>false</td><td>情感标签</td><td>SenseVoice 内置 / 其他模型 emotion2vec</td></tr>
         <tr><td><code>events</code></td><td>bool</td><td>false</td><td>音频事件标签</td><td>SenseVoice</td></tr>
-        <tr><td><code>punctuation</code></td><td>bool</td><td>true</td><td>标点恢复</td><td>全部（Whisper 自带）</td></tr>
+        <tr><td><code>punctuation</code></td><td>bool</td><td>true</td><td>标点恢复</td><td>Paraformer 可配 ct-punc，部分模型自带</td></tr>
         <tr><td><code>hotwords</code></td><td>string</td><td>—</td><td>热词 JSON</td><td>SenseVoice / Paraformer</td></tr>
-        <tr><td><code>response_format</code></td><td>string</td><td>json</td><td>json / verbose_json</td><td>OpenAI API</td></tr>
+        <tr><td><code>response_format</code></td><td>string</td><td>json</td><td>json / verbose_json / text / srt / vtt</td><td>标准 API / OpenAI API</td></tr>
       </tbody>
     </table>
-    <p style="margin-top:12px;font-size:13px;color:var(--text-secondary)">💡 模型切换通过 <code>.env</code> 中 <code>MODEL=</code> 配置，不在接口参数中暴露。切换后重启容器即生效。</p>
+    <p style="margin-top:12px;font-size:13px;color:var(--text-secondary)">💡 模型切换通过 <code>.env</code> 中 <code>MODEL=</code> 配置，不在接口参数中暴露。当前能力以 <code>/api/v1/capabilities</code> 为准。</p>
   </div>
 </div>
 

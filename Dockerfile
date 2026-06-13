@@ -1,7 +1,7 @@
 # ═══════════════════════════════════════════════════
 #  FunASR All-in-One Dockerfile
 #  ──────────────────────────────────────────────
-#  包含: OpenAI API / HTTP REST / WebSocket / MCP / Web UI
+#  包含: 标准 API / OpenAI API / 实时 WebSocket / MCP / Gradio WebUI
 #  ──────────────────────────────────────────────
 #  构建: docker compose build
 #  运行: docker compose up -d
@@ -13,7 +13,7 @@ FROM ${BASE_IMAGE}
 
 # ── 元信息 ──────────────────────────────────────
 LABEL maintainer="ZiDuNet"
-LABEL description="FunASR 统一语音识别服务 - OpenAI API + WebSocket + MCP + Web UI"
+LABEL description="FunASR 统一语音识别服务 - 标准 API + OpenAI API + 实时 WebSocket + MCP + Gradio WebUI"
 
 # ── 系统依赖（阿里云 apt 镜像）───────────────────
 # ffmpeg:  音频格式转码（mp3/mp4→PCM）

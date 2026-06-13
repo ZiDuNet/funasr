@@ -13,13 +13,10 @@ from typing import Optional
 
 import httpx
 
-from server.core.inference import run_blocking, _generate_sync
 from server.core.audio import convert_to_pcm, save_temp_upload
-from server.models.registry import ModelRegistry
-from server.models.config import (
-    MAX_TASKS, TASKS_DIR, AUDIO_DIR, DATA_TTL_DAYS,
-    DEFAULT_BATCH_SIZE_S, DEFAULT_BATCH_THRESHOLD_S,
-)
+from server.core.schemas import build_config
+from server.core.transcription import transcribe_pcm
+from server.models.config import MAX_TASKS, TASKS_DIR, AUDIO_DIR, DATA_TTL_DAYS
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +58,7 @@ class TranscriptionTask:
             "created_at": self.created_at,
             "model": self.model,
             "params": {
-                "speaker_diarization": self.speaker_diarization,
+                "diarization": self.speaker_diarization,
                 "emotion": self.emotion,
                 "events": self.events,
                 "punctuation": self.punctuation,
@@ -279,42 +276,16 @@ class TaskManager:
             try:
                 # ffmpeg 转 PCM
                 pcm_bytes = await convert_to_pcm(task.file_path)
-                gen_kwargs = {
-                    "batch_size_s": DEFAULT_BATCH_SIZE_S,
-                    "batch_size_threshold_s": 0,   # 禁用批量解码（SenseVoice 不支持）
-                    "use_itn": True,
-                    "merge_vad": True,
-                    "merge_length_s": 15,
-                }
-                if task.language and task.language != "auto":
-                    gen_kwargs["language"] = task.language
-                if task.hotwords:
-                    gen_kwargs["hotword"] = task.hotwords
-                if task.speaker_diarization:
-                    gen_kwargs["sentence_timestamp"] = True
-                    gen_kwargs["return_spk_res"] = True
-
-                registry = ModelRegistry.get_instance()
-                model = registry.get(with_spk=task.speaker_diarization)
-                result_list = await run_blocking(
-                    _generate_sync, model, pcm_bytes,
-                    sem=registry.sem_asr_offline,
-                    **gen_kwargs,
+                cfg = build_config(
+                    language=task.language,
+                    speaker_diarization=task.speaker_diarization,
+                    speaker_group=task.speaker_group or None,
+                    emotion=task.emotion,
+                    events=task.events,
+                    punctuation=task.punctuation,
+                    hotwords=task.hotwords or None,
                 )
-
-                if result_list:
-                    task.result = _format_result(result_list[0], task)
-                    # 声纹匹配：用 speaker_group 中的注册声纹替换 speaker_id
-                    if task.speaker_group and task.speaker_diarization:
-                        from server.core.speaker_db import match_segments
-                        registry = ModelRegistry.get_instance()
-                        match_segments(
-                            task.result.get("segments", []),
-                            pcm_bytes, task.speaker_group,
-                            registry.get_aux("sv"),
-                        )
-                else:
-                    task.result = {"text": ""}
+                task.result = await transcribe_pcm(pcm_bytes, cfg, source="task")
 
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = time.time()
@@ -398,35 +369,3 @@ class TaskManager:
             self._delete_files(task_id, task)
             return True
         return False
-
-
-def _format_result(raw: dict, task: TranscriptionTask) -> dict:
-    """格式化推理结果，字段按请求参数条件返回"""
-    from server.core.postprocess import clean_text, extract_emotion, extract_events
-
-    text = raw.get("text", "")
-    clean = clean_text(text)
-
-    result = {"text": clean}
-
-    # 情感/事件仅在请求时返回
-    if task.emotion:
-        result["emotion"] = extract_emotion(text)
-    if task.events:
-        result["events"] = extract_events(text)
-
-    # segments 仅在说话人分离请求时返回
-    if task.speaker_diarization and "sentence_info" in raw:
-        segments = []
-        for seg in raw["sentence_info"]:
-            s = {
-                "text": clean_text(seg.get("text") or seg.get("sentence", "")),
-                "start": seg.get("start", 0),
-                "end": seg.get("end", 0),
-            }
-            if "spk" in seg:
-                s["speaker_id"] = seg["spk"]
-            segments.append(s)
-        result["segments"] = segments
-
-    return result

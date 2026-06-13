@@ -2,6 +2,7 @@
 
 import json
 import logging
+import os
 
 from fastapi import WebSocket, WebSocketDisconnect
 
@@ -14,11 +15,87 @@ from server.core.speaker_db import match_segments, SpeakerTracker
 from server.models.registry import ModelRegistry
 
 logger = logging.getLogger(__name__)
+_API_TOKEN = os.environ.get("API_TOKEN", "").strip()
+
+
+def _milliseconds_to_seconds(value) -> float:
+    try:
+        number = float(value or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return round(number / 1000.0, 3)
+
+
+def _build_ws_canonical(rec: dict, sentence_info: list | None,
+                        state: dict, audio_duration: float) -> dict:
+    raw_text = rec.get("text", "")
+    text = clean_text(raw_text)
+    sentences = []
+    for idx, seg in enumerate(sentence_info or []):
+        item = {
+            "id": idx,
+            "paragraph_id": 0,
+            "start": _milliseconds_to_seconds(seg.get("start")),
+            "end": _milliseconds_to_seconds(seg.get("end")),
+            "text": clean_text(seg.get("text") or seg.get("sentence", "")),
+        }
+        if state.get("speaker_diarization") and "spk" in seg:
+            speaker = {"id": f"speaker_{seg['spk']}"}
+            if "speaker" in seg:
+                speaker["name"] = seg["speaker"]
+            if "speaker_score" in seg:
+                speaker["score"] = seg["speaker_score"]
+            if state.get("speaker_group"):
+                speaker["group_id"] = state["speaker_group"]
+            item["speaker"] = speaker
+        if state.get("emotion"):
+            item["emotion"] = extract_emotion(seg.get("text", "")) or extract_emotion(raw_text)
+        if state.get("events"):
+            item["events"] = extract_events(seg.get("text", "")) or extract_events(raw_text)
+        sentences.append(item)
+
+    if not sentences and text:
+        sentences.append({
+            "id": 0,
+            "paragraph_id": 0,
+            "start": 0.0,
+            "end": round(audio_duration, 3),
+            "text": text,
+        })
+
+    paragraph = {
+        "id": 0,
+        "start": sentences[0]["start"] if sentences else 0.0,
+        "end": sentences[-1]["end"] if sentences else 0.0,
+        "text": "".join(s["text"] for s in sentences).strip(),
+        "sentence_ids": [s["id"] for s in sentences],
+    }
+
+    canonical = {
+        "object": "realtime.transcription.segment",
+        "text": text,
+        "duration": round(audio_duration, 3),
+        "paragraph_count": 1 if sentences else 0,
+        "sentence_count": len(sentences),
+        "paragraphs": [paragraph] if sentences else [],
+        "sentences": sentences,
+    }
+    if state.get("emotion"):
+        canonical["emotion"] = extract_emotion(raw_text)
+    if state.get("events"):
+        canonical["events"] = extract_events(raw_text)
+    if state.get("speaker_group"):
+        canonical["speaker_group"] = state["speaker_group"]
+    return canonical
 
 
 def register_ws_endpoint(app):
-    @app.websocket("/ws")
+    @app.websocket("/api/v1/realtime/transcriptions")
     async def ws_endpoint(websocket: WebSocket):
+        if _API_TOKEN and websocket.query_params.get("token", "") != _API_TOKEN:
+            await websocket.close(code=1008)
+            return
+
         await websocket.accept(subprotocol="binary")
         logger.info("WebSocket 新连接")
 
@@ -79,8 +156,8 @@ def register_ws_endpoint(app):
                             state["status_asr"]["hotword"] = cfg["hotwords"]
                             state["status_asr_online"]["hotword"] = cfg["hotwords"]
 
-                        if "speaker_diarization" in cfg:
-                            state["speaker_diarization"] = bool(cfg["speaker_diarization"])
+                        if "diarization" in cfg:
+                            state["speaker_diarization"] = bool(cfg["diarization"])
                         if "speaker_group" in cfg:
                             state["speaker_group"] = str(cfg["speaker_group"])
                         if "emotion" in cfg:
@@ -190,7 +267,14 @@ def register_ws_endpoint(app):
                                                     for si in sentence_info:
                                                         si.pop("speaker_id", None)
 
+                                            canonical = _build_ws_canonical(
+                                                rec,
+                                                sentence_info,
+                                                state,
+                                                pcm_duration_ms(audio_in, fs=state["audio_fs"]) / 1000.0,
+                                            )
                                             resp = {
+                                                "type": "transcript.segment",
                                                 "mode": mode_label,
                                                 "text": text,                    # 原始文本（含标签）
                                                 "clean_text": clean_text(text),  # 清洗后纯文本
@@ -198,6 +282,7 @@ def register_ws_endpoint(app):
                                                 "is_final": True,
                                                 "timestamp": rec.get("timestamp"),
                                                 "sentence_info": sentence_info,
+                                                **canonical,
                                             }
                                             # 情感/事件仅在请求时返回
                                             if state.get("emotion"):

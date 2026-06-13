@@ -8,7 +8,7 @@
 
 | 维度 | 说明 |
 |------|------|
-| **7 种接口** | OpenAI API / HTTP REST / WebSocket 流式 / MCP / 异步任务 / 声纹管理 / Web UI |
+| **7 种入口** | 标准 API / OpenAI API / Realtime WebSocket / MCP / 异步任务 / 声纹管理 / Web UI |
 | **7 个 ASR 模型** | 从 234M 到 1.7B，覆盖 5-52 语言，`.env` 一键切换 |
 | **6 个辅助模型** | 流式 + VAD + 标点 + 说话人分离 + 情感识别，全部魔搭下载 |
 | **单镜像通用** | 一个镜像 CPU/GPU 通用，`FUNASR_DEVICE=cpu` 或 `FUNASR_DEVICE=cuda` 切换 |
@@ -58,7 +58,7 @@
 | cam++ | 说话人分离 / 声纹 | 7.2M |
 | emotion2vec+large | 独立情感识别 | 300M |
 
-> ⚠️ **情感识别、事件检测**仅 **SenseVoice** 支持（模型输出自带 `<|HAPPY|>`/`<|BGM|>` 等标签）。**说话人分离**所有模型均支持（cam++ 独立于 ASR 模型，Qwen3-ASR 需额外配置 forced_aligner）。
+> ⚠️ **事件检测**仅 **SenseVoice** 支持（模型输出自带 `<|BGM|>` 等标签）。**情感识别**优先使用 SenseVoice 内置标签，其他模型可走 emotion2vec 辅助模型。**说话人分离**通过 cam++ 独立能力提供。
 
 ---
 
@@ -67,14 +67,16 @@
 | 接口 | 协议 | 端点 | 用途 |
 |------|------|------|------|
 | 🔌 **OpenAI 兼容 API** | HTTP | `POST /v1/audio/transcriptions` | 用 `openai` SDK 直接调，零改造成本 |
-| 📡 **HTTP REST** | HTTP | `POST /recognition` | 文件上传转写，参数最全 |
-| 🔄 **WebSocket 流式** | WS | `ws://host:17767/ws` | 实时麦克风 / 流式音频，支持 3 种模式 |
+| 📡 **标准 API** | HTTP | `POST /api/v1/transcriptions` | 文件上传转写，统一基准返回 |
+| 🔄 **Realtime API** | WS | `ws://host:17767/api/v1/realtime/transcriptions` | 实时麦克风 / 流式音频，支持 3 种模式 |
 | 🤖 **MCP 协议** | HTTP | `POST /mcp` | Claude Desktop / Cursor / Claude Code 直连 |
-| 📦 **异步任务** | HTTP | `POST /api/tasks/submit` | 长文件 / URL 远程转写，提交后轮询结果 |
-| 👥 **声纹管理** | HTTP | `POST /api/speakers/register` | 多租户声纹注册、匹配、删除 |
-| 🌐 **Web UI** | Browser | `http://host:17767` | 浏览器管理界面（文件转写 / 实时录音 / 任务 / 声纹） |
+| 📦 **异步任务** | HTTP | `POST /api/v1/transcription-jobs` | 长文件 / URL 远程转写，提交后轮询结果 |
+| 👥 **声纹管理** | HTTP | `/api/v1/speaker-groups` | 多租户声纹注册、匹配、删除 |
+| 🌐 **Gradio WebUI** | Browser | `http://host:17767/ui` | 中文浏览器界面（文件转写 / 任务 / 声纹 / 状态 / 接口说明） |
 
 完整接口文档 → **[API.md](API.md)**　|　Swagger 交互文档 → `http://host:17767/docs`
+
+浏览器访问 `http://host:17767/` 会自动跳转到 Gradio WebUI。声纹管理页按“选择声纹组 → 注册说话人 → 选择已有说话人 → 转写时下拉选组”的流程组织，文件转写和异步任务会共用同一套声纹组下拉选项。上传控件显式支持 `wav/mp3/m4a/mp4/aac/flac/ogg/opus/webm/wma/amr` 等常见音频扩展名。
 
 ---
 
@@ -83,12 +85,36 @@
 | 参数 | 默认 | 说明 | 支持模型 |
 |------|------|------|----------|
 | `language` | `auto` | 语言提示 | 全部 |
-| `speaker_diarization` | `false` | 说话人分离（cam++） | 全部 |
-| `speaker_group` | — | 声纹组 ID，匹配后替换 speaker_id 为注册名（需同时启用 speaker_diarization） | 全部 |
+| `diarization` | `false` | 说话人分离（cam++） | 全部 |
+| `speaker_match` | `false` | 声纹组匹配 | 全部 |
+| `speaker_group` | — | 声纹组 ID，需同时启用 `speaker_match` | 全部 |
 | `emotion` | `false` | 情感标签 HAPPY/SAD/ANGRY 等（SenseVoice 内置 / 其他模型 emotion2vec） | 全部 |
 | `events` | `false` | 音频事件 BGM/Applause/Laughter 等 | SenseVoice |
 | `punctuation` | `true` | 标点恢复（SenseVoice/Fun-ASR-Nano 内置 / 其他模型 ct-punc） | 全部 |
 | `hotwords` | — | 热词 JSON | SenseVoice / Paraformer |
+
+---
+
+## 📦 标准返回
+
+所有转写入口最终都会产出同一套基准结果。增强能力只是在这个结构上追加字段：
+
+```json
+{
+  "text": "完整转写文本。",
+  "duration": 12.34,
+  "paragraph_count": 1,
+  "sentence_count": 2,
+  "paragraphs": [
+    {"id": 0, "start": 0.32, "end": 8.1, "text": "第一句。第二句。", "sentence_ids": [0, 1]}
+  ],
+  "sentences": [
+    {"id": 0, "paragraph_id": 0, "start": 0.32, "end": 3.6, "text": "第一句。"}
+  ]
+}
+```
+
+开启 `diarization` 后，`sentences[].speaker.id` 会出现；开启 `speaker_match` 后会增加 `name`、`score`、`group_id`。详见 [API.md](API.md)。
 
 ---
 
@@ -185,39 +211,47 @@ docker compose down           # 停止
 
 ```bash
 # 转写
-curl http://localhost:17767/v1/audio/transcriptions -F file=@audio.wav
+curl http://localhost:17767/api/v1/transcriptions -F file=@audio.wav
 
-# 带 Token 认证（.env 中设置了 API_TOKEN 时）
+# 带 Token 认证（.env 中设置了 API_TOKEN 时；标准 API 同样支持 Authorization）
 curl -H "Authorization: Bearer your-token" \
-  http://localhost:17767/v1/audio/transcriptions -F file=@audio.wav
+  http://localhost:17767/api/v1/transcriptions -F file=@audio.wav
 
 # 带说话人分离 + 情感
-curl http://localhost:17767/v1/audio/transcriptions \
-  -F file=@meeting.wav -F speaker_diarization=true -F emotion=true
+curl http://localhost:17767/api/v1/transcriptions \
+  -F file=@meeting.wav -F diarization=true -F emotion=true
 
 # 声纹注册 → 获得 group_id
-curl -X POST http://localhost:17767/api/speakers/register \
+curl -X POST http://localhost:17767/api/v1/speaker-groups
+curl -X POST http://localhost:17767/api/v1/speaker-groups/grp_abc123/speakers \
   -F audio=@ref.wav -F name=张三
-# → {"group_id": "grp_abc123", "name": "张三", "status": "registered"}
 
-# 转写 + 声纹匹配（speaker_id 自动替换为注册名）
-curl -X POST http://localhost:17767/v1/audio/transcriptions \
+# 转写 + 声纹匹配（sentences[].speaker 会包含注册名和匹配分数）
+curl -X POST http://localhost:17767/api/v1/transcriptions \
   -F file=@meeting.wav \
-  -F speaker_diarization=true \
+  -F diarization=true \
+  -F speaker_match=true \
   -F speaker_group=grp_abc123
 
 # 异步任务（URL）
-curl -X POST http://localhost:17767/api/tasks/submit \
+curl -X POST http://localhost:17767/api/v1/transcription-jobs \
   -F url=https://example.com/long_audio.mp3
 
 # OpenAI SDK（api_key 即为 API_TOKEN）
 python -c "
 from openai import OpenAI
 c = OpenAI(base_url='http://localhost:17767/v1', api_key='your-token')
-r = c.audio.transcriptions.create(model='funasr', file=open('audio.wav','rb'))
+r = c.audio.transcriptions.create(
+    model='funasr',
+    file=open('audio.wav','rb'),
+    response_format='verbose_json',
+    extra_body={'diarization': True}
+)
 print(r.text)
 "
 ```
+
+> OpenAI 兼容接口默认 `response_format=json` 时只返回 `{"text": "..."}`；需要段落、句子时间轴和扩展字段时使用标准 API，或在 OpenAI SDK 中设置 `response_format="verbose_json"`。
 
 ---
 
@@ -235,7 +269,7 @@ api/
 │   │   ├── postprocess.py   ← 文本清洗/情感/事件
 │   │   ├── task_manager.py  ← 异步任务
 │   │   └── speaker_db.py    ← 声纹库（多租户）
-│   ├── api/                 ← 6 个路由
+│   ├── api/                 ← 标准 API / OpenAI 兼容 / 任务 / 声纹 / 流式
 │   ├── mcp_server.py        ← MCP 协议
 │   ├── app.py               ← FastAPI + CORS
 │   └── main.py              ← 0.0.0.0 启动
@@ -264,7 +298,7 @@ api/
 | **局域网麦克风** | 浏览器安全策略限制，非 HTTPS 页面禁止麦克风。本地用 `localhost`，局域网需 Chrome flag 或 HTTPS |
 | **emotion2vec 警告** | `Warning, miss key in ckpt` 是 FunASR 正常日志，不影响功能 |
 | **大模型 GPU** | Qwen3-ASR / GLM-ASR 需要 bf16 精度，仅 NVIDIA Ampere+ (A100/3090/4090 等) 支持 |
-| **模型兼容性** | 情感/事件仅 SenseVoice 支持；说话人分离所有模型均支持（Qwen3-ASR 需 forced_aligner） |
+| **模型兼容性** | 以 `/api/v1/capabilities` 为准；事件仅 SenseVoice；情感可由 SenseVoice 标签或 emotion2vec 提供 |
 
 ---
 

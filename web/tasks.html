@@ -62,8 +62,9 @@ async function loadTasks() {
     const data = await FunASRApi.listTasks();
     const tbody = document.getElementById('taskBody');
     document.getElementById('taskCount').textContent = `共 ${data.total||0} 条`;
-    if (!data.tasks.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:#999">暂无任务</td></tr>'; return; }
-    tbody.innerHTML = data.tasks.map(t => `
+    const jobs = data.jobs || [];
+    if (!jobs.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:#999">暂无任务</td></tr>'; return; }
+    tbody.innerHTML = jobs.map(t => `
       <tr>
         <td style="font-family:monospace;font-size:13px">${t.task_id}</td>
         <td><span class="badge badge-${t.status}">${statusLabel(t.status)}</span></td>
@@ -113,12 +114,16 @@ function renderDetail(task) {
     if (task.duration_seconds) meta.push('处理耗时: '+task.duration_seconds.toFixed(1)+'s');
     if (task.result.emotion) meta.push('情感: '+task.result.emotion);
     if (task.result.events?.length) meta.push('事件: '+task.result.events.join(' '));
+    if (task.result.paragraph_count !== undefined) meta.push('段落: '+task.result.paragraph_count);
+    if (task.result.sentence_count !== undefined) meta.push('句子: '+task.result.sentence_count);
     if (task.result.speaker_group) meta.push('声纹组: '+task.result.speaker_group);
     metaEl.innerHTML = meta.map(m => `<span>${m}</span>`).join('');
 
-    if (task.result.segments?.length) {
-      timelineEl.innerHTML = task.result.segments.map(s => {
-        const spk = s.speaker ? `<span class="badge ${speakerColor(s.speaker_id)}">${s.speaker}</span>` : (s.speaker_id!==undefined?`<span class="badge ${speakerColor(s.speaker_id)}">说话人${s.speaker_id}</span>`:'');
+    const timeline = task.result.sentences || [];
+    if (timeline.length) {
+      timelineEl.innerHTML = timeline.map(s => {
+        const speakerId = s.speaker?.id ? parseInt(String(s.speaker.id).replace('speaker_', ''), 10) : undefined;
+        const spk = s.speaker?.name ? `<span class="badge ${speakerColor(speakerId)}">${s.speaker.name}</span>` : (s.speaker?.id ? `<span class="badge ${speakerColor(speakerId)}">${s.speaker.id}</span>` : '');
         return `<div class="timeline-item"><div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div><div class="timeline-content">${spk} ${s.text}</div></div>`;
       }).join('');
     } else { timelineEl.innerHTML = ''; }

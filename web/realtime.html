@@ -143,9 +143,10 @@ function handleMsg(data) {
     if (displayText) {
       accumulatedText += displayText;
       // 说话人标签
-      const spkId = data.sentence_info?.[0]?.spk;
-      const spkLabel = spkId !== undefined ? `说话人${spkId}` : '...';
-      const spkColor = spkId !== undefined ? `spk-${spkId % 5}` : '';
+      const speaker = data.sentences?.[0]?.speaker;
+      const spkId = speaker?.id ? parseInt(String(speaker.id).replace('speaker_', ''), 10) : undefined;
+      const spkLabel = speaker?.name || speaker?.id || '...';
+      const spkColor = spkId !== undefined && !Number.isNaN(spkId) ? `spk-${spkId % 5}` : '';
       const emo = data.emotion ? ` · ${data.emotion}` : '';
       const html = `<div class="turn"><span class="spk-label ${spkColor}">${spkLabel}${emo}</span><span class="final">${displayText}</span></div>`;
       finalHistory.push({ text: displayText, html, spk: spkLabel, emo: data.emotion });

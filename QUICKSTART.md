@@ -11,7 +11,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-等模型下载完（`docker logs -f funasr` 看进度），打开 `http://localhost:17767`。
+等模型下载完（`docker logs -f funasr` 看进度），打开 `http://localhost:17767`，会自动进入 Gradio WebUI。声纹管理在 WebUI 里是下拉式流程：先创建或选择声纹组，再注册说话人，之后文件转写和异步任务都可以直接下拉选择该声纹组。
 
 ---
 
@@ -58,8 +58,8 @@ docker compose -f docker/docker-compose.gpu.build.yml up -d
 curl http://localhost:17767/health
 # → {"status":"ok","device":"cpu","model":"Fun-ASR-Nano",...}
 
-curl -X POST http://localhost:17767/v1/audio/transcriptions -F file=@test.wav
-# → {"text":"大家好，欢迎使用语音识别。"}
+curl -X POST http://localhost:17767/api/v1/transcriptions -F file=@test.wav
+# → {"text":"大家好，欢迎使用语音识别。","paragraphs":[...],"sentences":[...]}
 ```
 
 ---
@@ -97,13 +97,36 @@ MODEL=whisper-large-v3-turbo  # 多语言识别+翻译，809M
 
 | 端点 | 用途 |
 |------|------|
-| `http://localhost:17767` | Web 管理界面 |
+| `http://localhost:17767` | 自动跳转 Gradio WebUI |
+| `http://localhost:17767/ui` | Gradio 中文管理界面 |
 | `http://localhost:17767/docs` | Swagger 交互文档 |
+| `POST /api/v1/transcriptions` | 标准同步转写 |
 | `POST /v1/audio/transcriptions` | OpenAI 兼容转写 |
-| `POST /recognition` | HTTP REST 转写 |
-| `ws://localhost:17767/ws` | WebSocket 流式 |
-| `POST /api/tasks/submit` | 异步长文件转写 |
-| `POST /api/speakers/register` | 声纹注册 |
+| `ws://localhost:17767/api/v1/realtime/transcriptions` | WebSocket 流式 |
+| `POST /api/v1/transcription-jobs` | 异步长文件转写 |
+| `POST /api/v1/speaker-groups/{id}/speakers` | 声纹注册 |
+
+---
+
+## 标准返回
+
+主接口永远返回全文、段落数量、句子数量、段落数组和句子时间轴：
+
+```json
+{
+  "text": "...",
+  "paragraph_count": 1,
+  "sentence_count": 2,
+  "paragraphs": [{"start": 0.32, "end": 8.1, "sentence_ids": [0, 1]}],
+  "sentences": [{"start": 0.32, "end": 3.6, "text": "第一句。"}]
+}
+```
+
+查看当前模型能力：
+
+```bash
+curl http://localhost:17767/api/v1/capabilities
+```
 
 ---
 
@@ -111,33 +134,34 @@ MODEL=whisper-large-v3-turbo  # 多语言识别+翻译，809M
 
 ```bash
 # 基础转写
-curl -X POST http://localhost:17767/v1/audio/transcriptions -F file=@audio.wav
+curl -X POST http://localhost:17767/api/v1/transcriptions -F file=@audio.wav
 
 # 说话人分离 + 情感 + 事件
-curl -X POST http://localhost:17767/v1/audio/transcriptions \
+curl -X POST http://localhost:17767/api/v1/transcriptions \
   -F file=@meeting.wav \
-  -F speaker_diarization=true \
+  -F diarization=true \
   -F emotion=true \
   -F events=true
 
 # 声纹注册 → 转写匹配
-curl -X POST http://localhost:17767/api/speakers/register \
+curl -X POST http://localhost:17767/api/v1/speaker-groups
+curl -X POST http://localhost:17767/api/v1/speaker-groups/grp_abc/speakers \
   -F audio=@zhangsan.wav -F name=张三
-# → {"group_id":"grp_abc","name":"张三","status":"registered"}
 
-curl -X POST http://localhost:17767/v1/audio/transcriptions \
+curl -X POST http://localhost:17767/api/v1/transcriptions \
   -F file=@meeting.wav \
-  -F speaker_diarization=true \
+  -F diarization=true \
+  -F speaker_match=true \
   -F speaker_group=grp_abc
 
 # 异步长文件
-curl -X POST http://localhost:17767/api/tasks/submit -F file=@long_meeting.mp3
+curl -X POST http://localhost:17767/api/v1/transcription-jobs -F file=@long_meeting.mp3
 # → {"task_id":"abc123","status":"queued"}
-curl http://localhost:17767/api/tasks/abc123
+curl http://localhost:17767/api/v1/transcription-jobs/abc123
 # → {"task_id":"abc123","status":"completed","result":{...}}
 
 # Token 认证（生产环境）
 # .env 中设置 API_TOKEN=your-secret
 curl -H "Authorization: Bearer your-secret" \
-  http://localhost:17767/v1/audio/transcriptions -F file=@audio.wav
+  http://localhost:17767/api/v1/transcriptions -F file=@audio.wav
 ```

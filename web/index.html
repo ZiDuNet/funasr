@@ -134,8 +134,9 @@ function getParams() {
   const hw = document.getElementById('hotwords').value.trim();
   return {
     language: document.getElementById('language').value,
-    speaker_diarization: document.getElementById('spk').checked,
+    diarization: document.getElementById('spk').checked,
     speaker_group: document.getElementById('speakerGroup').value.trim() || undefined,
+    speaker_match: !!document.getElementById('speakerGroup').value.trim(),
     emotion: document.getElementById('emotion').checked,
     events: document.getElementById('events').checked,
     punctuation: document.getElementById('punc').checked,
@@ -189,14 +190,19 @@ function showResult(data) {
   if (data.duration) meta.push('耗时: '+data.duration+'s');
   if (data.emotion) meta.push('情感: '+data.emotion);
   if (data.events?.length) meta.push('事件: '+data.events.join(' '));
+  if (data.paragraph_count !== undefined) meta.push('段落: '+data.paragraph_count);
+  if (data.sentence_count !== undefined) meta.push('句子: '+data.sentence_count);
   if (data.speaker_group) meta.push('声纹组: '+data.speaker_group);
   document.getElementById('resultMeta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
 
   // 分段时间轴
-  if (data.segments?.length) {
+  const timeline = data.sentences || [];
+  if (timeline.length) {
     let html = '';
-    data.segments.forEach(s => {
-      const spk = s.speaker ? `<span class="badge ${speakerColor(s.speaker_id)}">${s.speaker}</span>` : (s.speaker_id !== undefined ? `<span class="badge ${speakerColor(s.speaker_id)}">说话人${s.speaker_id}</span>` : '');
+    timeline.forEach(s => {
+      const speakerId = s.speaker?.id ? parseInt(String(s.speaker.id).replace('speaker_', ''), 10) : undefined;
+      const speakerName = s.speaker?.name || s.speaker;
+      const spk = speakerName ? `<span class="badge ${speakerColor(speakerId)}">${speakerName}</span>` : (s.speaker?.id ? `<span class="badge ${speakerColor(speakerId)}">${s.speaker.id}</span>` : '');
       html += `<div class="timeline-item">
         <div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div>
         <div class="timeline-content">${spk} ${s.text}</div>

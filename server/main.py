@@ -18,12 +18,14 @@ def main():
     port = int(os.environ.get("FUNASR_PORT", "17767"))
 
     logger.info(f"启动 FunASR All-in-One @ http://{host}:{port}")
+    logger.info(f"  标准转写:    http://{host}:{port}/api/v1/transcriptions")
     logger.info(f"  OpenAI API:  http://{host}:{port}/v1/audio/transcriptions")
-    logger.info(f"  HTTP REST:   http://{host}:{port}/recognition")
-    logger.info(f"  WebSocket:   ws://{host}:{port}/ws")
+    logger.info(f"  异步任务:    http://{host}:{port}/api/v1/transcription-jobs")
+    logger.info(f"  声纹组:      http://{host}:{port}/api/v1/speaker-groups")
+    logger.info(f"  实时转写:    ws://{host}:{port}/api/v1/realtime/transcriptions")
     logger.info(f"  MCP:         http://{host}:{port}/mcp")
-    logger.info(f"  Web UI:      http://{host}:{port}/")
-    logger.info(f"  API Docs:    http://{host}:{port}/docs")
+    logger.info(f"  Gradio UI:   http://{host}:{port}/ui")
+    logger.info(f"  API 文档:    http://{host}:{port}/docs")
 
     app = create_app()
     uvicorn.run(app, host=host, port=port, log_level="info")

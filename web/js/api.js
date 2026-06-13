@@ -67,7 +67,7 @@ class FunASRApi {
   static transcribe(file, params = {}) {
     const fd = new FormData(); fd.append('file', file);
     Object.entries(params).forEach(([k,v]) => { if (v!==undefined && v!==null && v!=='') fd.append(k, v); });
-    return this.request('/v1/audio/transcriptions', { method:'POST', body:fd });
+    return this.request('/api/v1/transcriptions', { method:'POST', body:fd });
   }
 
   static submitTask(fileOrUrl, params = {}) {
@@ -75,30 +75,29 @@ class FunASRApi {
     if (fileOrUrl instanceof File) fd.append('file', fileOrUrl);
     else fd.append('url', fileOrUrl);
     Object.entries(params).forEach(([k,v]) => { if (v!==undefined && v!==null && v!=='') fd.append(k, v); });
-    return this.request('/api/tasks/submit', { method:'POST', body:fd });
+    return this.request('/api/v1/transcription-jobs', { method:'POST', body:fd });
   }
 
-  static getTask(taskId) { return this.request(`/api/tasks/${taskId}`); }
-  static listTasks() { return this.request('/api/tasks'); }
-  static deleteTask(taskId) { return this.request(`/api/tasks/${taskId}`, { method:'DELETE' }); }
-
-  static recognition(file, params = {}) {
-    const fd = new FormData(); fd.append('audio', file);
-    Object.entries(params).forEach(([k,v]) => { if (v!==undefined && v!==null && v!=='') fd.append(k, v); });
-    return this.request('/recognition', { method:'POST', body:fd });
-  }
+  static getTask(taskId) { return this.request(`/api/v1/transcription-jobs/${taskId}`); }
+  static listTasks() { return this.request('/api/v1/transcription-jobs'); }
+  static deleteTask(taskId) { return this.request(`/api/v1/transcription-jobs/${taskId}`, { method:'DELETE' }); }
 
   static health() { return this.request('/health'); }
 
   // 声纹
-  static registerSpeaker(audioFile, name, group=null) {
+  static async registerSpeaker(audioFile, name, group=null) {
+    let targetGroup = group;
+    if (!targetGroup) {
+      const created = await this.request('/api/v1/speaker-groups', { method:'POST' });
+      targetGroup = created.group_id;
+    }
     const fd = new FormData(); fd.append('audio', audioFile); fd.append('name', name);
-    if (group) fd.append('speaker_group', group);
-    return this.request('/api/speakers/register', { method:'POST', body:fd });
+    const path = `/api/v1/speaker-groups/${encodeURIComponent(targetGroup)}/speakers`;
+    return this.request(path, { method:'POST', body:fd });
   }
-  static listSpeakerGroups() { return this.request('/api/speakers'); }
-  static getSpeakers(groupId) { return this.request(`/api/speakers/${groupId}`); }
-  static deleteSpeaker(groupId, name) { return this.request(`/api/speakers/${groupId}/${encodeURIComponent(name)}`, { method:'DELETE' }); }
+  static listSpeakerGroups() { return this.request('/api/v1/speaker-groups'); }
+  static getSpeakers(groupId) { return this.request(`/api/v1/speaker-groups/${groupId}/speakers`); }
+  static deleteSpeaker(groupId, name) { return this.request(`/api/v1/speaker-groups/${groupId}/speakers/${encodeURIComponent(name)}`, { method:'DELETE' }); }
 }
 
 // ── 页面初始化（标题显示模型名 + 连接状态）──────────

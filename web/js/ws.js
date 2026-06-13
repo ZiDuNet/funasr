@@ -12,7 +12,8 @@ class FunASRWebSocket {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = (location.protocol === 'file:' || location.origin === 'null') ? 'localhost:17767' : location.host;
     const token = localStorage.getItem('funasr_token') || '';
-    const wsUrl = token ? `${proto}//${host}/ws?token=${encodeURIComponent(token)}` : `${proto}//${host}/ws`;
+    const path = '/api/v1/realtime/transcriptions';
+    const wsUrl = token ? `${proto}//${host}${path}?token=${encodeURIComponent(token)}` : `${proto}//${host}${path}`;
     this.ws = new WebSocket(wsUrl, ['binary']);
 
     this.ws.onopen = () => {
@@ -28,7 +29,7 @@ class FunASRWebSocket {
         wav_format: 'pcm',
         audio_fs: 16000,
         itn: true,
-        speaker_diarization: speakerDiarization,
+        diarization: speakerDiarization,
         emotion: emotion,
         events: events,
       };

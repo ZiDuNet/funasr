@@ -1,426 +1,376 @@
-# FunASR All-in-One API 文档
+# FunASR All-in-One 接口文档
 
-**Base URL**: `http://{host}:17767`　|　**Swagger**: `http://{host}:17767/docs`
+基础地址：`http://{host}:17767`
 
----
+本项目只提供一套标准 API：`/api/v1/*`。OpenAI 接口 `/v1/*` 仅用于兼容 OpenAI SDK。所有转写最终都会进入同一个标准结果结构。
 
-## 目录
+## 设计原则
 
-1. [OpenAI 兼容 API](#1-openai-兼容-api)
-2. [HTTP REST API](#2-http-rest-api)
-3. [异步任务 API](#3-异步任务-api)
-4. [声纹管理 API](#4-声纹管理-api)
-5. [WebSocket 流式 API](#5-websocket-流式-api)
-6. [MCP 协议](#6-mcp-协议)
-7. [系统接口](#7-系统接口)
-8. [输出格式说明](#8-输出格式说明)
-9. [错误码](#9-错误码)
+- 部署模型由 `.env` 中的 `MODEL=...` 决定，请求参数不允许临时切换模型。
+- 所有转写结果必须包含全文、段落、句子、句子开始时间、句子结束时间。
+- 可选能力只在标准结果上追加字段，不改变基准结构。
+- 不支持的能力默认返回 `422`；传 `fallback=auto` 时跳过不支持能力，并在 `features.warnings` 中说明。
+- 公开参数统一使用产品语义：`diarization`、`speaker_match`、`emotion`、`events`、`punctuation`、`hotwords`。
 
----
+## WebUI
 
-## 1. OpenAI 兼容 API
+默认访问：
 
-兼容 OpenAI Audio API，可直接用 `openai` Python SDK 调用。
-
-### POST /v1/audio/transcriptions
-
-**说明**: 转写音频文件，同步返回详细 JSON。**始终返回完整结果**，字段根据请求参数动态包含。
-
-| 参数 | 类型 | 必填 | 默认 | 说明 |
-|------|------|------|------|------|
-| `file` | File | ✅ | — | 音频文件（wav/mp3/mp4/flac/m4a/ogg/webm） |
-| `language` | string | ❌ | auto | 语言提示（zh/en/ja/ko/yue） |
-| `speaker_diarization` | bool | ❌ | false | 启用说话人分离，返回 `segments` + `speaker_id` |
-| `speaker_group` | string | ❌ | — | 声纹组 ID（异步任务中会自动匹配替换 speaker_id 为注册名） |
-| `emotion` | bool | ❌ | false | 返回 `emotion` 字段（😊😔😡等） |
-| `events` | bool | ❌ | false | 返回 `events` 字段（👏😂🎵等） |
-| `punctuation` | bool | ❌ | true | 标点恢复（模型自带，参数保留用于兼容） |
-| `hotwords` | string | ❌ | — | 热词 JSON，如 `{"达摩院":20}` |
-
-**基础响应**（无额外参数）:
-
-```json
-{
-  "text": "大家好，欢迎使用语音识别。",
-  "language": "zh",
-  "duration": 0.523,
-  "model": "SenseVoiceSmall"
-}
+```text
+http://{host}:17767/
 ```
 
-**启用情感 + 事件**（`emotion=true&events=true`）:
+根路径会跳转到 Gradio WebUI：
 
-```json
-{
-  "text": "大家好，欢迎使用语音识别。",
-  "language": "zh",
-  "duration": 0.523,
-  "model": "SenseVoiceSmall",
-  "emotion": "HAPPY",
-  "events": ["BGM", "Applause"]
-}
+```text
+http://{host}:17767/ui
 ```
 
-**启用说话人分离**（`speaker_diarization=true`）:
+WebUI 全中文，包含：
+
+- 文件转写
+- 异步任务
+- 声纹组管理
+- 服务状态
+- 接口说明
+
+## 认证
+
+`.env` 中设置 `API_TOKEN=your-secret` 后启用认证。
+
+HTTP 请求：
+
+```http
+Authorization: Bearer your-secret
+```
+
+WebSocket：
+
+```text
+ws://host:17767/api/v1/realtime/transcriptions?token=your-secret
+```
+
+`API_TOKEN` 为空时不启用认证。
+
+## 端点总览
+
+| 端点 | 方法 | 用途 |
+|---|---:|---|
+| `/api/v1/transcriptions` | POST | 标准同步转写 |
+| `/api/v1/transcription-jobs` | POST | 提交异步转写任务 |
+| `/api/v1/transcription-jobs` | GET | 列出异步任务 |
+| `/api/v1/transcription-jobs/{task_id}` | GET | 查询单个异步任务 |
+| `/api/v1/transcription-jobs/{task_id}` | DELETE | 删除异步任务 |
+| `/api/v1/realtime/transcriptions` | WebSocket | 实时在线/离线/2pass 转写 |
+| `/api/v1/speaker-groups` | POST | 创建声纹组 |
+| `/api/v1/speaker-groups` | GET | 列出声纹组 |
+| `/api/v1/speaker-groups/{group_id}` | DELETE | 删除整个声纹组 |
+| `/api/v1/speaker-groups/{group_id}/speakers` | POST | 注册说话人 |
+| `/api/v1/speaker-groups/{group_id}/speakers` | GET | 列出组内说话人 |
+| `/api/v1/speaker-groups/{group_id}/speakers/{name}` | DELETE | 删除说话人 |
+| `/api/v1/capabilities` | GET | 查询当前模型能力 |
+| `/api/v1/models` | GET | 查询内置模型能力矩阵 |
+| `/v1/audio/transcriptions` | POST | OpenAI 兼容转写 |
+| `/v1/models` | GET | OpenAI 兼容模型列表 |
+| `/health` | GET | 健康检查 |
+| `/docs` | GET | Swagger 文档 |
+
+## 标准转写结果
+
+所有成功转写都返回下面的基准结构：
 
 ```json
 {
-  "text": "大家好，欢迎使用语音识别。",
-  "language": "zh",
-  "duration": 0.523,
+  "id": "tr_0123456789abcdef",
+  "object": "transcription",
   "model": "SenseVoiceSmall",
-  "segments": [
+  "source": "upload",
+  "duration": 12.34,
+  "processing_time": 0.82,
+  "text": "完整转写文本。",
+  "language": "auto",
+  "paragraph_count": 1,
+  "sentence_count": 2,
+  "paragraphs": [
     {
-      "text": "大家好",
-      "start": 0.43,
-      "end": 1.52,
-      "speaker_id": 0
+      "id": 0,
+      "start": 0.32,
+      "end": 8.1,
+      "text": "第一句。第二句。",
+      "sentence_ids": [0, 1]
+    }
+  ],
+  "sentences": [
+    {
+      "id": 0,
+      "paragraph_id": 0,
+      "start": 0.32,
+      "end": 3.6,
+      "text": "第一句。"
     },
     {
-      "text": "欢迎使用语音识别",
-      "start": 1.68,
-      "end": 3.91,
-      "speaker_id": 1
+      "id": 1,
+      "paragraph_id": 0,
+      "start": 3.8,
+      "end": 8.1,
+      "text": "第二句。"
     }
-  ]
+  ],
+  "features": {
+    "requested": ["asr", "sentence_timestamps", "paragraphs"],
+    "applied": ["asr", "sentence_timestamps", "paragraphs"],
+    "warnings": []
+  }
 }
 ```
 
-**启用说话人分离 + 声纹匹配**（`speaker_diarization=true&speaker_group=grp_abc123`）：
+时间单位统一为秒。FunASR 原始 `sentence_info` 中的毫秒时间戳会被转换为秒。
+
+如果模型没有返回句子时间戳，服务会返回一个覆盖整段音频的单句，并加入警告：
 
 ```json
 {
-  "text": "大家好，欢迎使用语音识别。",
-  "speaker_group": "grp_abc123",
-  "segments": [
-    {"text": "大家好", "start": 0.43, "end": 1.52, "speaker_id": 0, "speaker": "张三"},
-    {"text": "欢迎使用语音识别", "start": 1.68, "end": 3.91, "speaker_id": 1}
-  ]
+  "code": "sentence_timestamps_unavailable",
+  "feature": "sentence_timestamps",
+  "message": "模型未返回 sentence_info，已使用全文生成单句时间轴"
 }
 ```
 
-**全参数启用**（`speaker_diarization=true&emotion=true&events=true`）:
+## 可选增强字段
+
+启用 `diarization=true` 后，句子会增加匿名说话人：
 
 ```json
 {
-  "text": "大家好，欢迎使用语音识别。",
-  "language": "zh",
-  "duration": 0.523,
-  "model": "SenseVoiceSmall",
+  "speaker": {
+    "id": "speaker_0"
+  }
+}
+```
+
+启用 `speaker_match=true&speaker_group=grp_xxx` 后，匹配成功的句子会增加注册名和分数：
+
+```json
+{
+  "speaker": {
+    "id": "speaker_0",
+    "name": "alice",
+    "score": 0.8421,
+    "group_id": "grp_xxx"
+  }
+}
+```
+
+启用 `emotion=true` 或 `events=true` 后，会在顶层或句子上增加：
+
+```json
+{
   "emotion": "HAPPY",
-  "events": ["BGM", "Applause"],
-  "segments": [
-    {"text": "大家好", "start": 0.43, "end": 1.52, "speaker_id": 0},
-    {"text": "欢迎使用语音识别", "start": 1.68, "end": 3.91, "speaker_id": 1}
-  ]
+  "events": ["Laughter"]
 }
 ```
 
-**curl 示例**:
+## 请求参数
+
+Multipart 请求支持平铺表单字段，也支持一个 JSON 字符串字段 `config`。新集成推荐使用 `config`。
+
+```json
+{
+  "features": {
+    "diarization": true,
+    "speaker_match": {
+      "enabled": true,
+      "group_id": "grp_xxx"
+    },
+    "emotion": true,
+    "events": true,
+    "punctuation": true,
+    "words": false,
+    "raw": false
+  },
+  "options": {
+    "language": "auto",
+    "hotwords": {"FunASR": 20},
+    "paragraph": {
+      "enabled": true,
+      "max_gap_seconds": 1.2,
+      "max_sentences": 6
+    }
+  },
+  "fallback": "error",
+  "response_format": "json"
+}
+```
+
+平铺字段：
+
+| 字段 | 类型 | 默认 | 说明 |
+|---|---|---:|---|
+| `file` | file | 必填 | 同步转写音频文件 |
+| `language` | string | `auto` | 语言提示 |
+| `diarization` | bool | `false` | 使用 cam++ 进行匿名说话人分离 |
+| `speaker_match` | bool | `false` | 使用声纹组匹配注册说话人 |
+| `speaker_group` | string | 空 | 声纹组 ID，启用 `speaker_match` 时必填 |
+| `emotion` | bool | `false` | 情感识别 |
+| `events` | bool | `false` | 音频事件检测 |
+| `punctuation` | bool | `true` | 标点恢复或模型内置标点 |
+| `hotwords` | string | 空 | 热词 JSON 字符串 |
+| `words` | bool | `false` | 预留词级时间戳 |
+| `raw` | bool | `false` | 返回原始 FunASR 输出 |
+| `fallback` | string | `error` | `error` 或 `auto` |
+| `response_format` | string | `json` | `json`、`verbose_json`、`text`、`srt`、`vtt` |
+
+## 标准同步转写
 
 ```bash
-# 基本转写
-curl -X POST http://localhost:17767/v1/audio/transcriptions -F file=@audio.wav
+curl -X POST http://localhost:17767/api/v1/transcriptions \
+  -F file=@audio.wav
+```
 
-# 说话人分离 + 情感
-curl -X POST http://localhost:17767/v1/audio/transcriptions \
-  -F file=@meeting.mp3 \
-  -F speaker_diarization=true \
+带常用能力：
+
+```bash
+curl -X POST http://localhost:17767/api/v1/transcriptions \
+  -F file=@meeting.wav \
+  -F language=zh \
+  -F diarization=true \
+  -F speaker_match=true \
+  -F speaker_group=grp_xxx \
   -F emotion=true \
-  -F events=true
+  -F events=true \
+  -F fallback=auto
 ```
 
-**Python 示例**:
+使用 JSON 配置：
 
-```python
-from openai import OpenAI
-client = OpenAI(base_url="http://localhost:17767/v1", api_key="x")
-result = client.audio.transcriptions.create(
-    model="funasr",
-    file=open("meeting.wav", "rb"),
-    language="zh",
-    extra_body={"speaker_diarization": True, "emotion": True, "events": True},
-)
-print(result.text)
+```bash
+curl -X POST http://localhost:17767/api/v1/transcriptions \
+  -F file=@meeting.wav \
+  -F 'config={"features":{"diarization":true,"emotion":true},"options":{"language":"zh"}}'
 ```
 
----
+输出字幕：
 
-### GET /v1/models
+```bash
+curl -X POST http://localhost:17767/api/v1/transcriptions \
+  -F file=@audio.wav \
+  -F response_format=srt
+```
 
-列出当前部署的模型信息。
+## 异步任务
+
+提交文件：
+
+```bash
+curl -X POST http://localhost:17767/api/v1/transcription-jobs \
+  -F file=@long_meeting.mp3 \
+  -F diarization=true
+```
+
+提交远程 URL：
+
+```bash
+curl -X POST http://localhost:17767/api/v1/transcription-jobs \
+  -F url=https://example.com/audio.mp3 \
+  -F emotion=true
+```
+
+响应：
 
 ```json
 {
-  "object": "list",
-  "data": [
-    {"id": "funasr", "object": "model", "created": 1700000000,
-     "owned_by": "funasr", "ready": true, "name": "SenseVoiceSmall"}
-  ]
-}
-```
-
----
-
-## 2. HTTP REST API
-
-### POST /recognition
-
-简单文件上传转写，始终返回完整结果。
-
-| 参数 | 类型 | 必填 | 默认 | 说明 |
-|------|------|------|------|------|
-| `audio` | File | ✅ | — | 音频文件 |
-| `language` | string | ❌ | auto | 语言提示 |
-| `speaker_diarization` | bool | ❌ | false | 说话人分离，返回 `sentences` + `speaker_id` |
-| `speaker_group` | string | ❌ | — | 声纹组 ID（透传） |
-| `emotion` | bool | ❌ | false | 情感标签 |
-| `events` | bool | ❌ | false | 音频事件 |
-| `punctuation` | bool | ❌ | true | 标点恢复 |
-
-**基础响应**: `{"text": "...", "code": 0}`
-
-**说话人分离** (`speaker_diarization=true`):
-
-```json
-{
-  "text": "完整转写文本",
-  "sentences": [
-    {"text": "第一句", "start": 430, "end": 1520, "speaker_id": 0},
-    {"text": "第二句", "start": 1680, "end": 3910, "speaker_id": 1}
-  ],
-  "code": 0
-}
-```
-
-| 字段 | 说明 |
-|------|------|
-| `code=0` | 成功 |
-| `code=1` | 出错（见 msg） |
-| `start/end` | 毫秒时间戳 |
-| `speaker_id` | 说话人编号（仅当 `speaker_diarization=true`） |
-| `emotion` | 情感 emoji（仅当 `emotion=true`） |
-| `events` | 事件 emoji 列表（仅当 `events=true`） |
-
----
-
-## 3. 异步任务 API
-
-用于长文件或 URL 远程文件转写。
-
-### POST /api/tasks/submit
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `file` | File | 二选一 | 音频文件 |
-| `url` | string | 二选一 | 远程音频 URL |
-| 其他 | — | ❌ | 同 [公共参数](#8-公共参数) |
-
-**返回值** (HTTP 202):
-
-```json
-{
-  "task_id": "a1b2c3d4e5f6",
+  "task_id": "abc123def456",
   "status": "queued",
   "created_at": 1749000000.0,
-  "model": "sensevoice",
+  "model": "SenseVoiceSmall",
   "params": {
-    "speaker_diarization": true,
-    "emotion": true,
-    "events": false,
-    "punctuation": true,
-    "language": "auto"
-  }
-}
-```
-
-### GET /api/tasks
-
-获取所有任务列表。
-
-```json
-{
-  "tasks": [
-    {
-      "task_id": "a1b2c3d4e5f6",
-      "status": "completed",
-      "created_at": 1749000000.0,
-      "model": "sensevoice",
-      "params": {"speaker_diarization": true, "emotion": false, "events": false, "punctuation": true, "language": "auto"},
-      "duration_seconds": 2.34,
-      "audio_duration_seconds": 120.5
-    }
-  ],
-  "total": 1
-}
-```
-
-### GET /api/tasks/{task_id}
-
-查询单个任务。**`result` 字段结构按请求参数动态包含**（同 [输出格式说明](#8-输出格式说明)）。
-
-**仅说话人分离** (`speaker_diarization=true`):
-
-```json
-{
-  "task_id": "a1b2c3d4e5f6",
-  "status": "completed",
-  "created_at": 1749000000.0,
-  "completed_at": 1749000143.5,
-  "duration_seconds": 143.5,
-  "params": {
-    "speaker_diarization": true,
+    "diarization": true,
     "emotion": false,
     "events": false,
     "punctuation": true,
     "language": "auto"
-  },
-  "result": {
-    "text": "完整转写文本...",
-    "segments": [
-      {"text": "...", "start": 430, "end": 1520, "speaker_id": 0},
-      {"text": "...", "start": 1680, "end": 3910, "speaker_id": 1}
-    ]
   }
 }
 ```
 
-**说话人分离 + 声纹匹配** (`speaker_diarization=true&speaker_group=grp_abc`):
+查询任务：
 
-> 异步任务会自动用 SV 模型提取每个 segment 的声纹，匹配数据库后替换 `speaker_id`。
-> 匹配到的 segment 会有 `speaker` 字段（注册名），未匹配的保留数字 `speaker_id`。
-
-```json
-{
-  "task_id": "a1b2c3d4e5f6",
-  "status": "completed",
-  "params": {
-    "speaker_diarization": true,
-    "speaker_group": "grp_abc",
-    "emotion": false,
-    "events": false,
-    "punctuation": true,
-    "language": "auto"
-  },
-  "result": {
-    "text": "完整转写文本...",
-    "segments": [
-      {"text": "大家好", "start": 430, "end": 1520, "speaker_id": 0, "speaker": "张三"},
-      {"text": "欢迎使用", "start": 1680, "end": 3910, "speaker_id": 1}
-    ]
-  }
-}
+```bash
+curl http://localhost:17767/api/v1/transcription-jobs/abc123def456
 ```
 
-> 上面示例中 `speaker_id=0` 匹配到了声纹库中的"张三"，`speaker_id=1` 未匹配到（库中无此人）。
+任务完成后，`result` 字段就是标准转写结果。
 
-**全参数启用** (`speaker_diarization=true&emotion=true&events=true&speaker_group=grp_abc`):
+删除任务：
 
-```json
-{
-  "result": {
-    "text": "完整转写文本...",
-    "emotion": "😊",
-    "events": ["👏"],
-    "segments": [
-      {"text": "大家好", "start": 430, "end": 1520, "speaker_id": 0, "speaker": "张三"},
-      {"text": "欢迎使用", "start": 1680, "end": 3910, "speaker_id": 1}
-    ]
-  }
-}
+```bash
+curl -X DELETE http://localhost:17767/api/v1/transcription-jobs/abc123def456
 ```
 
-**进行中**: `{"task_id": "...", "status": "processing"}`
+## 声纹组
 
-**失败**: `{"task_id": "...", "status": "failed", "error": "错误信息"}`
+创建声纹组：
 
-**状态说明**:
+```bash
+curl -X POST http://localhost:17767/api/v1/speaker-groups
+```
 
-| 状态 | 含义 |
-|------|------|
-| `downloading` | 正在下载 URL 文件 |
-| `queued` | 已加入推理队列 |
-| `processing` | 正在推理 |
-| `completed` | 完成 |
-| `failed` | 失败（见 error 字段） |
-
-### DELETE /api/tasks/{task_id}
-
-删除任务及其关联文件。`{"deleted": true, "task_id": "..."}`
-
----
-
-## 4. 声纹管理 API
-
-多租户隔离：每个 group 独立存储声纹，互不可见。
-
-**使用流程**：
-1. 注册说话人 → 获得 `group_id`
-2. 转写时传入 `speaker_group=group_id` → 自动将 `speaker_id` 替换为注册名
-
-### POST /api/speakers/register
-
-注册说话人声纹。
-
-| 参数 | 类型 | 必填 | 说明 |
-|------|------|------|------|
-| `audio` | File | ✅ | 参考音频（5-30s，单人，背景安静） |
-| `name` | string | ✅ | 说话人名字（如"张三"） |
-| `speaker_group` | string | ❌ | 已有 group ID（不传则自动创建新 group） |
-
-**返回** (HTTP 201):
+响应：
 
 ```json
 {
   "group_id": "grp_abc123def456",
-  "name": "张三",
-  "status": "registered",
-  "message": "说话人 '张三' 已注册到 group 'grp_abc123def456'"
+  "speaker_count": 0
 }
 ```
 
-> ⚠️ **group_id 需要保存好**，后续转写时通过 `speaker_group=grp_abc123def456` 带入。
+注册说话人：
 
-### GET /api/speakers
-
-列出所有声纹组。
-
-```json
-{
-  "groups": [
-    {"group_id": "grp_abc123", "speaker_count": 2, "speakers": ["张三", "李四"]}
-  ],
-  "total": 1
-}
+```bash
+curl -X POST http://localhost:17767/api/v1/speaker-groups/grp_abc123def456/speakers \
+  -F name=alice \
+  -F audio=@alice.m4a
 ```
 
-### GET /api/speakers/{group_id}
+参考音频会通过 ffmpeg 转成 16k 单声道 PCM，支持 `wav/mp3/m4a/mp4/aac/flac/ogg/opus/webm/wma/amr` 等常见格式。建议 5-30 秒、单人说话、背景安静。
 
-查看指定 group 的说话人列表。
+列出说话人：
 
-### DELETE /api/speakers/{group_id}/{name}
+```bash
+curl http://localhost:17767/api/v1/speaker-groups/grp_abc123def456/speakers
+```
 
-删除指定 group 中的说话人。
+删除说话人：
 
----
+```bash
+curl -X DELETE http://localhost:17767/api/v1/speaker-groups/grp_abc123def456/speakers/alice
+```
 
-## 5. WebSocket 流式 API
+删除整个声纹组：
 
-### ws://host:17767/ws
+```bash
+curl -X DELETE http://localhost:17767/api/v1/speaker-groups/grp_abc123def456
+```
 
-Subprotocol: `binary`
+转写时使用声纹组：
 
-**三种模式**:
+```bash
+curl -X POST http://localhost:17767/api/v1/transcriptions \
+  -F file=@meeting.wav \
+  -F diarization=true \
+  -F speaker_match=true \
+  -F speaker_group=grp_abc123def456
+```
 
-| 模式 | 说明 | 延迟 | 精度 |
-|------|------|------|------|
-| `online` | 纯流式，逐帧实时输出 | ~300ms | 一般 |
-| `offline` | VAD 检测断句后用离线模型识别 | 1-3s | 高 |
-| `2pass` | online 实时出稿 + offline 事后修正（推荐） | 兼顾 | 最高 |
+## 实时 WebSocket
 
-**流程**: 发送 JSON 配置 → 发送二进制 PCM → 接收实时结果
+连接地址：
 
-**配置消息**:
+```text
+ws://localhost:17767/api/v1/realtime/transcriptions
+```
+
+初始配置消息：
 
 ```json
 {
@@ -428,169 +378,179 @@ Subprotocol: `binary`
   "chunk_size": [5, 10, 5],
   "chunk_interval": 10,
   "wav_name": "microphone",
-  "wav_format": "pcm",
   "is_speaking": true,
+  "wav_format": "pcm",
   "audio_fs": 16000,
   "itn": true,
-  "speaker_diarization": false,
-  "emotion": false,
-  "events": false,
-  "hotwords": "{\"达摩院\":20}"
+  "diarization": true,
+  "speaker_group": "grp_xxx",
+  "emotion": true,
+  "events": true,
+  "hotwords": "{\"FunASR\":20}"
 }
 ```
 
-| 参数 | 默认 | 说明 |
-|------|------|------|
-| `mode` | `2pass` | `online` / `offline` / `2pass` |
-| `chunk_size` | — | `[5,10,5]` 表示 600ms 显示窗口，300ms 前瞻 |
-| `chunk_interval` | `10` | 流式 ASR 触发间隔（帧数） |
-| `is_speaking` | — | `true`=说话中 / `false`=结束（触发最终结果） |
-| `speaker_diarization` | `false` | 说话人分离（仅 offline） |
-| `speaker_group` | — | 声纹组 ID，匹配后替换 speaker_id 为注册名（仅 offline） |
-| `emotion` | `false` | 情感标签（仅 offline） |
-| `events` | `false` | 事件标签（仅 offline） |
-| `itn` | `true` | 逆文本归一化 |
-| `hotwords` | — | 热词 JSON |
+随后发送二进制 PCM 帧：16 kHz、单声道、signed 16-bit little-endian。
 
-**功能支持矩阵**:
-
-| 功能 | online | offline | 2pass |
-|------|--------|---------|-------|
-| 说话人分离 | ❌ | ✅ | ✅（offline 部分） |
-| 声纹匹配 | ❌ | ✅ | ✅（offline 部分） |
-| 情感识别 | ❌ | ✅ | ✅（offline 部分） |
-| 事件检测 | ❌ | ✅ | ✅（offline 部分） |
-| 标点恢复 | ❌ | ✅ | ✅（offline 部分） |
-
-> online 阶段仅输出实时文本，说话人分离/情感/事件只在 VAD 断句后的 offline 修正结果中返回。
-
-**服务端消息**:
+结束录音：
 
 ```json
-// online 实时中间结果
-{"mode": "2pass-online", "text": "大家", "wav_name": "microphone", "is_final": false}
+{"is_speaking": false}
+```
 
-// offline 修正结果（仅含请求的字段）
+在线临时结果：
+
+```json
 {
+  "mode": "2pass-online",
+  "text": "临时结果",
+  "is_final": false
+}
+```
+
+最终片段：
+
+```json
+{
+  "type": "transcript.segment",
   "mode": "2pass-offline",
-  "text": "大家好，欢迎使用语音识别。",
-  "wav_name": "microphone",
   "is_final": true,
-  "emotion": "HAPPY",
-  "events": ["Applause"],
-  "timestamp": [[430, 670], [670, 810]],
-  "sentence_info": [
-    {"start": 430, "end": 1520, "text": "大家好", "spk": 0}
-  ]
+  "text": "原始结果",
+  "clean_text": "清洗后文本",
+  "paragraph_count": 1,
+  "sentence_count": 1,
+  "paragraphs": [],
+  "sentences": []
 }
 ```
 
-> 结束信号：发送 `{"is_speaking": false}` 触发最后一次 offline 识别并返回最终结果。
+## OpenAI 兼容接口
 
----
+端点：
 
-## 6. MCP 协议
+```text
+POST /v1/audio/transcriptions
+```
 
-### POST /mcp
+常用 OpenAI 字段：
 
-Streamable HTTP 协议，支持 Claude Desktop / Cursor / Claude Code 接入。
+| 字段 | 说明 |
+|---|---|
+| `file` | 必填 |
+| `model` | 仅兼容 SDK，实际模型仍由 `.env` 决定 |
+| `language` | 语言提示 |
+| `prompt` | 映射为 `hotwords` |
+| `response_format` | `json`、`verbose_json`、`text`、`srt`、`vtt` |
+| `timestamp_granularities` | `word` 目前会按能力校验，可能返回 422 |
 
-**配置示例** (`claude_desktop_config.json`):
+FunASR 扩展字段：
+
+| 字段 | 说明 |
+|---|---|
+| `diarization` | 说话人分离 |
+| `speaker_match` | 声纹匹配 |
+| `speaker_group` | 声纹组 ID |
+| `emotion` | 情感识别 |
+| `events` | 事件检测 |
+| `hotwords` | 热词 JSON |
+| `fallback` | `error` 或 `auto` |
+
+`response_format=json` 返回：
+
+```json
+{"text": "完整文本"}
+```
+
+`response_format=verbose_json` 返回 OpenAI 风格 `segments`，并附带标准 `paragraphs`、`sentences`。
+
+Python 示例：
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:17767/v1", api_key="x")
+result = client.audio.transcriptions.create(
+    model="funasr",
+    file=open("audio.wav", "rb"),
+    response_format="verbose_json",
+    extra_body={"diarization": True, "emotion": True}
+)
+print(result.text)
+```
+
+## 能力查询
+
+当前部署：
+
+```bash
+curl http://localhost:17767/api/v1/capabilities
+```
+
+内置模型矩阵：
+
+```bash
+curl http://localhost:17767/api/v1/models
+```
+
+常见能力字段：
+
+| 字段 | 含义 |
+|---|---|
+| `asr` | 离线语音识别 |
+| `sentence_timestamps` | 句子时间轴 |
+| `paragraphs` | 段落生成 |
+| `diarization` | 匿名说话人分离 |
+| `speaker_match` | 注册声纹匹配 |
+| `emotion` | 情感识别 |
+| `events` | 音频事件 |
+| `punctuation` | 标点能力 |
+| `hotwords` | 热词能力 |
+| `streaming` | 实时接口是否启用 |
+
+## 错误码
+
+不支持能力：
 
 ```json
 {
-  "mcpServers": {
-    "funasr": {
-      "type": "http",
-      "url": "http://localhost:17767/mcp"
-    }
+  "detail": {
+    "error": "unsupported_feature",
+    "feature": "events",
+    "message": "当前模型不支持 events"
   }
 }
 ```
 
-**可用工具**:
-
-| 工具 | 参数 | 说明 |
-|------|------|------|
-| `transcribe_audio` | `audio_path`, `language`, `speaker_diarization` | 转写本地文件 |
-| `transcribe_url` | `url`, `language`, `speaker_diarization` | 下载并转写远程文件 |
-
----
-
-## 7. 系统接口
-
-### GET /health
+缺少声纹组：
 
 ```json
 {
-  "status": "ok",
-  "device": "cpu",
-  "model": "SenseVoiceSmall",
-  "models_loaded": ["asr", "asr_spk", "streaming", "vad", "punc", "sv", "emotion"]
+  "detail": {
+    "error": "missing_speaker_group",
+    "message": "speaker_match 需要提供 speaker_group/group_id"
+  }
 }
 ```
 
-### Swagger 文档
+常见 HTTP 状态码：
 
-`http://host:17767/docs` — 交互式 API 文档。
-
-### Web UI
-
-`http://host:17767` — 浏览器管理界面。
-
----
-
-## 8. 输出格式说明
-
-核心原则：**请求了什么参数，JSON 里就有什么字段。没传的字段不出现。**
-
-| 传入参数 | 输出字段 | 说明 |
-|----------|---------|------|
-| （无） | `text` | 仅返回清洗后的纯文本 |
-| `emotion=true` | + `emotion` | 情感标签名，如 `"HAPPY"` |
-| `events=true` | + `events` | 事件标签名，如 `["BGM","Applause"]` |
-| `speaker_diarization=true` | + `segments[]` | 分段数组，每段含 `text`/`start`/`end`/`speaker_id` |
-| `speaker_group=xxx` | `segments[].speaker` | 匹配到的 segment 添加 `speaker` 字段（注册名），未匹配保留数字 `speaker_id` |
-
-**字段详情**：
-
-| 字段 | 类型 | 来源 | 说明 |
-|------|------|------|------|
-| `text` | string | 始终 | 清洗后的纯文本（去除 `<\|...\|>` 标签） |
-| `emotion` | string | SenseVoice(内置) / emotion2vec(辅助) | 情感标签名：HAPPY/SAD/ANGRY/FEARFUL/DISGUSTED/SURPRISED |
-| `events` | string[] | SenseVoice(仅内置) | 事件标签名列表：BGM/Applause/Laughter/Cry/Sneeze/Cough |
-| `segments[].text` | string | 说话人分离 | 清洗后的分段文本 |
-| `segments[].start` | number | 说话人分离 | 开始时间（毫秒） |
-| `segments[].end` | number | 说话人分离 | 结束时间（毫秒） |
-| `segments[].speaker_id` | int | cam++ | 聚类编号（0, 1, 2...），所有模型支持 |
-| `segments[].speaker` | string | 声纹匹配 | 声纹库匹配到的注册名 |
-
-**模型兼容**：说话人分离(cam++)和标点恢复(ct-punc)所有模型均支持。情感(SenseVoice内置/emotion2vec辅助)。事件仅SenseVoice内置。
-
-### 公共参数
-
-| 参数 | 类型 | 默认 | 说明 |
-|------|------|------|------|
-| `language` | string | `auto` | `auto` / `zh` / `en` / `ja` / `ko` / `yue` |
-| `speaker_diarization` | bool | `false` | 启用说话人分离 |
-| `speaker_group` | string | — | 声纹组 ID（提前通过 `/api/speakers/register` 注册） |
-| `emotion` | bool | `false` | 情感标签（SenseVoice 模型自带） |
-| `events` | bool | `false` | 音频事件标签（SenseVoice 模型自带） |
-| `punctuation` | bool | `true` | 标点恢复 |
-| `hotwords` | string | — | 热词 JSON，如 `{"达摩院":20}` |
-
----
-
-## 9. 错误码
-
-| HTTP 状态码 | 说明 |
-|-------------|------|
+| 状态码 | 含义 |
+|---:|---|
 | 200 | 成功 |
-| 201 | 创建成功（声纹注册） |
-| 202 | 已接受（异步任务提交） |
-| 400 | 参数错误 |
-| 404 | 资源不存在 |
-| 413 | 文件过大 |
-| 500 | 服务端错误 |
+| 201 | 已创建声纹组或说话人 |
+| 202 | 异步任务已提交 |
+| 400 | 请求参数或 JSON 配置错误 |
+| 401 | Token 缺失或错误 |
+| 404 | 任务或说话人不存在 |
+| 422 | 能力不支持或缺少依赖参数 |
+| 500 | 转码或推理失败 |
 
-> 任务结果保留 `FUNASR_DATA_TTL_DAYS` 天（默认 7 天），过期自动清理。
+## FunASR 语义说明
+
+- 句子时间轴来自 FunASR `sentence_info`。
+- 说话人分离通过 `spk_model="cam++"` 启用。
+- 声纹匹配是在说话人分离后的二次匹配。
+- SenseVoice 会在识别文本中输出情感和事件标签。
+- 非 SenseVoice 情感识别可使用 emotion2vec 辅助模型。
+- 事件检测仅 SenseVoice 明确支持。
+- 实时接口使用独立 streaming pipeline、VAD 和 cache。

@@ -3,7 +3,9 @@
 import json
 import os
 import logging
+import shutil
 import numpy as np
+from pathlib import Path
 from uuid import uuid4
 
 from server.models.config import SPEAKERS_DIR
@@ -40,6 +42,30 @@ def _save_db(group_id: str, data: dict):
 def generate_group_id() -> str:
     """生成新的租户 group ID"""
     return f"grp_{uuid4().hex[:12]}"
+
+
+def create_group(group_id: str | None = None) -> str:
+    """Create an empty speaker group and return its ID."""
+    gid = group_id or generate_group_id()
+    _save_db(gid, _load_db(gid))
+    return gid
+
+
+def remove_group(group_id: str) -> bool:
+    """删除整个声纹组目录。"""
+    if not group_id:
+        return False
+    root = Path(SPEAKERS_DIR).resolve()
+    target = (root / group_id).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError:
+        raise ValueError("非法声纹组 ID")
+    if not target.is_dir():
+        return False
+    shutil.rmtree(target)
+    logger.info(f"声纹组删除: group={group_id}")
+    return True
 
 
 def register_speaker(group_id: str, name: str, embedding: list) -> str:
@@ -83,11 +109,8 @@ def list_groups() -> list[dict]:
     return groups
 
 
-def match_speaker(group_id: str, embedding: list | None, threshold: float = 0.2) -> str | None:
-    """在 group 中匹配说话人
-
-    返回匹配到的说话人名字，或 None
-    """
+def best_speaker_candidate(group_id: str, embedding: list | None) -> dict | None:
+    """返回声纹组里最接近的候选人，不做阈值过滤。"""
     if embedding is None:
         return None
     db = _load_db(group_id)
@@ -101,18 +124,37 @@ def match_speaker(group_id: str, embedding: list | None, threshold: float = 0.2)
 
     from scipy.spatial.distance import cosine
 
-    best_name, best_score = None, 0.0
+    best_name, best_score = None, float("-inf")
     for name, ref in db.items():
         try:
-            ref_vec = np.array(ref, dtype=np.float32)
+            ref_vec = np.array(ref, dtype=np.float32).flatten()
             sim = 1.0 - cosine(vec, ref_vec)
-            if sim > best_score and sim > threshold:
+            if not np.isfinite(sim):
+                continue
+            if sim > best_score:
                 best_score = sim
                 best_name = name
         except Exception:
             continue
 
-    return best_name
+    if best_name is None:
+        return None
+    return {"name": best_name, "score": round(float(best_score), 4)}
+
+
+def match_speaker_detail(group_id: str, embedding: list | None,
+                         threshold: float = 0.2) -> dict | None:
+    """在 group 中匹配说话人，返回名称和分数。"""
+    candidate = best_speaker_candidate(group_id, embedding)
+    if candidate and candidate["score"] > threshold:
+        return candidate
+    return None
+
+
+def match_speaker(group_id: str, embedding: list | None, threshold: float = 0.2) -> str | None:
+    """在 group 中匹配说话人，返回匹配到的名字或 None。"""
+    detail = match_speaker_detail(group_id, embedding, threshold=threshold)
+    return detail["name"] if detail else None
 
 
 def extract_embedding(model, audio_input) -> list | None:
@@ -126,12 +168,46 @@ def extract_embedding(model, audio_input) -> list | None:
         return None
 
 
+def _segment_speaker_key(seg: dict):
+    spk_id = seg.get("speaker_id")
+    if spk_id is None:
+        spk_id = seg.get("spk")
+    if spk_id is None:
+        return None
+    try:
+        number = float(spk_id)
+        if number.is_integer():
+            return int(number)
+    except (TypeError, ValueError):
+        pass
+    return str(spk_id)
+
+
+def _slice_pcm_by_ms(pcm_bytes: bytes, start_ms, end_ms) -> bytes:
+    bytes_per_ms = 32000 / 1000  # 16kHz, 16bit, mono
+    try:
+        start = max(0.0, float(start_ms or 0))
+        end = max(0.0, float(end_ms or 0))
+    except (TypeError, ValueError):
+        return b""
+    if end <= start:
+        return b""
+    start_byte = max(0, int(start * bytes_per_ms))
+    end_byte = min(len(pcm_bytes), int(end * bytes_per_ms))
+    if end_byte <= start_byte:
+        return b""
+    return pcm_bytes[start_byte:end_byte]
+
+
 def match_segments(segments: list[dict], pcm_bytes: bytes,
-                   group_id: str, sv_model) -> None:
-    """对 segments 中的每个 speaker_id 提取声纹并匹配数据库
+                   group_id: str, sv_model, threshold: float = 0.2) -> dict:
+    """对 segments 中的每个匿名说话人提取声纹并匹配数据库。
 
     匹配到的添加 ``speaker`` 字段（注册名），未匹配的保留数字 ``speaker_id``。
-    按 speaker_id 分组缓存，同一说话人只提取一次声纹。
+    兼容 FunASR 的 ``spk`` 和本项目标准化后的 ``speaker_id`` 字段。
+
+    同一个匿名说话人的多段音频会先合并再提取声纹，避免第一段太短或
+    静音过多导致整个说话人匹配失败。
 
     Args:
         segments: 转写结果中的 segments 列表（会被原地修改）
@@ -139,40 +215,87 @@ def match_segments(segments: list[dict], pcm_bytes: bytes,
         group_id: 声纹组 ID
         sv_model: 声纹模型（AutoModel 实例）
     """
+    summary = {
+        "group_id": group_id,
+        "threshold": threshold,
+        "reference_speaker_count": len(_load_db(group_id)),
+        "total_segments": len(segments),
+        "matched_segment_count": 0,
+        "matched_speaker_count": 0,
+        "unmatched_speaker_count": 0,
+        "speakers": {},
+    }
     if not segments:
-        return
+        return summary
 
-    seen_speakers: dict[int, str | None] = {}
-    bytes_per_ms = 32000 / 1000  # 16kHz, 16bit, mono
+    chunks_by_speaker: dict = {}
+    segments_by_speaker: dict = {}
 
     for seg in segments:
-        spk_id = seg.get("speaker_id")
+        spk_id = _segment_speaker_key(seg)
         if spk_id is None:
             continue
+        seg["speaker_id"] = spk_id
+        segments_by_speaker.setdefault(spk_id, []).append(seg)
+        seg_audio = _slice_pcm_by_ms(pcm_bytes, seg.get("start"), seg.get("end"))
+        if seg_audio:
+            chunks_by_speaker.setdefault(spk_id, []).append(seg_audio)
 
-        if spk_id in seen_speakers:
-            if seen_speakers[spk_id]:
-                seg["speaker"] = seen_speakers[spk_id]
-            continue
+    for spk_id, speaker_segments in segments_by_speaker.items():
+        chunks = chunks_by_speaker.get(spk_id) or []
+        audio = b"".join(chunks)
+        speaker_summary = {
+            "audio_seconds": round(len(audio) / 32000, 3),
+            "segment_count": len(speaker_segments),
+            "matched": False,
+            "name": None,
+            "score": None,
+            "best_candidate": None,
+            "reason": "",
+        }
 
-        # 截取该 segment 对应的 PCM 音频片段
-        start_byte = int(seg["start"] * bytes_per_ms)
-        end_byte = int(seg["end"] * bytes_per_ms)
-        seg_audio = pcm_bytes[start_byte:end_byte]
+        if summary["reference_speaker_count"] == 0:
+            speaker_summary["reason"] = "声纹组为空"
+        elif len(audio) < 1600:
+            speaker_summary["reason"] = "可用于匹配的说话人音频太短"
+        else:
+            try:
+                embedding = extract_embedding(sv_model, audio)
+                if embedding is None:
+                    speaker_summary["reason"] = "当前说话人音频提取声纹失败"
+                    candidate = None
+                else:
+                    candidate = best_speaker_candidate(group_id, embedding)
+                speaker_summary["best_candidate"] = candidate
+                matched = candidate if candidate and candidate["score"] > threshold else None
+                if matched:
+                    speaker_summary.update({
+                        "matched": True,
+                        "name": matched["name"],
+                        "score": matched["score"],
+                        "reason": "已命中",
+                    })
+                    for seg in speaker_segments:
+                        seg["speaker"] = matched["name"]
+                        seg["speaker_score"] = matched["score"]
+                elif candidate:
+                    speaker_summary["reason"] = (
+                        f"最高相似度 {candidate['score']} 未达到阈值 {threshold}"
+                    )
+                else:
+                    speaker_summary["reason"] = "未找到可比较的声纹候选"
+            except Exception as e:
+                speaker_summary["reason"] = f"声纹匹配失败: {e}"
+                logger.warning(f"声纹匹配失败 speaker_id={spk_id}: {e}")
 
-        if len(seg_audio) < 1600:  # 音频太短（<100ms），跳过
-            seen_speakers[spk_id] = None
-            continue
+        if speaker_summary["matched"]:
+            summary["matched_speaker_count"] += 1
+            summary["matched_segment_count"] += len(speaker_segments)
+        else:
+            summary["unmatched_speaker_count"] += 1
+        summary["speakers"][str(spk_id)] = speaker_summary
 
-        try:
-            embedding = extract_embedding(sv_model, seg_audio)
-            matched = match_speaker(group_id, embedding) if embedding else None
-            seen_speakers[spk_id] = matched
-            if matched:
-                seg["speaker"] = matched
-        except Exception as e:
-            logger.warning(f"声纹匹配失败 speaker_id={spk_id}: {e}")
-            seen_speakers[spk_id] = None
+    return summary
 
 
 class SpeakerTracker:
