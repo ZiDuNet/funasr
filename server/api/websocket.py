@@ -531,6 +531,10 @@ def register_ws_endpoint(app):
                             else:
                                 frames = frames[-20:]
 
+                elif msg["type"] == "websocket.disconnect":
+                    logger.info("WebSocket 断开")
+                    break
+
         except WebSocketDisconnect:
             logger.info("WebSocket 断开")
         except Exception as e:

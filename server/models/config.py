@@ -131,11 +131,18 @@ _PRESETS = {
     },
 }
 
+def _with_speaker_model(config: dict) -> dict:
+    """FunASR speaker diarization requires punc_model alongside spk_model."""
+    spk_config = {**config, "spk_model": "cam++"}
+    spk_config.setdefault("punc_model", "ct-punc")
+    return spk_config
+
+
 # 根据 MODEL 环境变量选择
 if MODEL in _PRESETS:
     preset = _PRESETS[MODEL]
     ASR_CONFIG = preset["config"]
-    ASR_CONFIG_WITH_SPK = {**ASR_CONFIG, "spk_model": "cam++"}
+    ASR_CONFIG_WITH_SPK = _with_speaker_model(ASR_CONFIG)
     MODEL_NAME = preset["name"]
 
     # 大模型需要 dtype=bf16（仅 GPU）
@@ -151,7 +158,7 @@ if MODEL in _PRESETS:
 else:
     # 兜底：直接使用 MODEL 作为模型 ID
     ASR_CONFIG = {"model": MODEL}
-    ASR_CONFIG_WITH_SPK = {"model": MODEL, "spk_model": "cam++"}
+    ASR_CONFIG_WITH_SPK = _with_speaker_model(ASR_CONFIG)
     MODEL_NAME = MODEL
     logger.info(f"离线模型（自定义）: {MODEL}")
 
