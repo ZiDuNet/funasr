@@ -16,14 +16,40 @@
 </nav>
 
 <div class="container">
-  <h1>实时录音转写</h1>
-  <p class="desc">浏览器麦克风实时语音识别，支持流式/离线/2pass</p>
+  <div class="page-head">
+    <div>
+      <h1>实时录音转写</h1>
+      <p class="desc">原生浏览器 WebSocket 录音，实时发送 16k 单声道 PCM 音频帧。</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-secondary" href="/docs">查看 /docs</a>
+      <a class="btn btn-secondary" href="index.html">文件转写</a>
+    </div>
+  </div>
+
+  <div class="interface-grid">
+    <div class="interface-card">
+      <div class="label">实时入口</div>
+      <div class="value"><span class="endpoint ws">WS /api/v1/realtime/transcriptions</span></div>
+      <div class="hint">页面直连浏览器 WebSocket，不走 Gradio 上传接口。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">协议说明</div>
+      <div class="value"><span class="endpoint">GET /api/v1/realtime/transcriptions/protocol</span></div>
+      <div class="hint">在 /docs 的 Realtime WebSocket 分组中查看完整示例。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">发送流程</div>
+      <div class="value">session.start → PCM → audio.end</div>
+      <div class="hint">最终段才会返回说话人、声纹、情感、事件和标点。</div>
+    </div>
+  </div>
 
   <div class="card">
     <h2 style="margin-top:0">识别参数</h2>
     <div class="params">
       <div class="param">
-        <label>识别模式</label>
+        <label>识别模式（mode）</label>
         <select id="mode">
           <option value="2pass">2pass（实时+离线修正）</option>
           <option value="online">online（纯实时）</option>
@@ -31,7 +57,7 @@
         </select>
       </div>
       <div class="param">
-        <label>语言</label>
+        <label>语言（language）</label>
         <select id="language">
           <option value="auto">auto</option>
           <option value="zh">中文</option>
@@ -42,7 +68,7 @@
         </select>
       </div>
       <div class="param">
-        <label>声纹组 ID</label>
+        <label>声纹组 ID（speaker_group）</label>
         <input id="speakerGroup" placeholder="开启声纹匹配时填写">
       </div>
     </div>
@@ -83,6 +109,7 @@
     <!-- 模式说明 -->
     <div class="mode-info">
       <strong>WebSocket 请求逻辑</strong>：点击开始后先建立 `/api/v1/realtime/transcriptions` 连接，发送 `session.start` 参数，再持续发送 16k 单声道 PCM 二进制帧，停止时发送 `audio.end`。<br>
+      <strong>说话人一致性</strong>：匿名说话人编号只在单个 WebSocket 会话内维护。短句会优先沿用上一位说话人，减少一个人被切成多个编号。<br>
       <strong>2pass（推荐）</strong>：先返回实时中间结果，VAD 断句后用离线模型修正。离线结果含说话人、声纹、情感、事件、标点。<br>
       <strong>online</strong>：纯流式，延迟最低（~300ms），仅文字，不含情感/事件/标点。<br>
       <strong>offline</strong>：VAD 断句后离线识别，含情感/事件/标点，但无实时中间结果。

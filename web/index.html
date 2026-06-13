@@ -17,8 +17,34 @@
 </nav>
 
 <div class="container">
-  <h1>文件转写</h1>
-  <p class="desc">上传音频/视频或输入 URL，支持参数化控制识别能力</p>
+  <div class="page-head">
+    <div>
+      <h1>文件转写</h1>
+      <p class="desc">上传音频/视频或输入 URL，按标准接口参数控制转写能力。</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-secondary" href="/docs">查看 /docs</a>
+      <a class="btn btn-secondary" href="realtime.html">实时录音</a>
+    </div>
+  </div>
+
+  <div class="interface-grid">
+    <div class="interface-card">
+      <div class="label">同步接口</div>
+      <div class="value"><span class="endpoint">POST /api/v1/transcriptions</span></div>
+      <div class="hint">短音频直接返回标准 JSON，包含全文、段落、句子时间轴。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">异步接口</div>
+      <div class="value"><span class="endpoint">POST /api/v1/transcription-jobs</span></div>
+      <div class="hint">长文件或 URL 提交任务，到“任务管理”查询结果。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">参数结构</div>
+      <div class="value">能力 features / 选项 options / 兜底 fallback</div>
+      <div class="hint">页面控件会映射为后端同名字段。</div>
+    </div>
+  </div>
 
   <!-- 上传 -->
   <div class="card">
@@ -45,8 +71,9 @@
   <div class="card">
     <h2 style="margin-top:0">识别参数</h2>
     <div class="params">
-      <div class="param"><label>语言</label><select id="language"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="ko">韩文</option><option value="yue">粤语</option></select></div>
-      <div class="param"><label>说话人分组</label><input type="text" id="speakerGroup" placeholder="留空则不匹配声纹"></div>
+      <div class="param"><label>语言（language）</label><select id="language"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="ko">韩文</option><option value="yue">粤语</option></select></div>
+      <div class="param"><label>声纹组 ID（speaker_group）</label><input type="text" id="speakerGroup" placeholder="如：grp_xxx"></div>
+      <div class="param"><label>不支持能力处理（fallback）</label><select id="fallback"><option value="error">报错提醒</option><option value="auto">自动跳过</option></select></div>
     </div>
     <div class="param" style="margin-top:14px">
       <label>热词（JSON 格式，提高特定词准确率）</label>
@@ -57,8 +84,13 @@
     <div style="margin-top:18px">
       <div class="toggle">
         <input type="checkbox" id="spk">
-        <div><label for="spk">👥 说话人分离</label>
-        <div class="toggle-hint">识别音频中不同说话人，标注"说话人0/1/2..."。配合声纹注册可显示真实姓名，适用于会议、访谈等多人场景。</div></div>
+        <div><label for="spk">👥 说话人分离（diarization）</label>
+        <div class="toggle-hint">识别不同说话人，返回 <code>speaker_0</code>、<code>speaker_1</code> 等匿名编号。</div></div>
+      </div>
+      <div class="toggle">
+        <input type="checkbox" id="speakerMatch">
+        <div><label for="speakerMatch">🔎 声纹匹配（speaker_match）</label>
+        <div class="toggle-hint">需要填写声纹组 ID。最终结果会尝试匹配已注册说话人姓名和分数。</div></div>
       </div>
       <div class="toggle">
         <input type="checkbox" id="emotion">
@@ -72,22 +104,30 @@
       </div>
       <div class="toggle">
         <input type="checkbox" id="punc" checked>
-        <div><label for="punc">📝 标点恢复</label>
-        <div class="toggle-hint">自动添加逗号、句号、问号等标点符号，提升可读性。建议保持开启。</div></div>
+        <div><label for="punc">📝 标点恢复（punctuation）</label>
+        <div class="toggle-hint">最终文本启用标点/ITN。部分模型自带标点，部分模型会调用标点模型。</div></div>
       </div>
+      <div class="toggle">
+        <input type="checkbox" id="raw">
+        <div><label for="raw">🧾 返回原始结果（raw）</label>
+        <div class="toggle-hint">在标准 JSON 中附加 FunASR 原始返回，便于排查模型输出。</div></div>
+      </div>
+    </div>
+    <div class="control-note">
+      声纹匹配会自动启用说话人分离。只想区分匿名说话人时，开启“说话人分离”即可；想显示注册姓名时，再开启“声纹匹配”并填写声纹组 ID。
     </div>
 
     <div class="btn-group">
-      <button class="btn btn-primary" id="btnSync" onclick="transcribeSync()" disabled>⚡ 同步转写（短音频）</button>
-      <button class="btn btn-secondary" id="btnAsync" onclick="transcribeAsync()" disabled>📦 异步转写（长文件）</button>
+      <button class="btn btn-primary" id="btnSync" onclick="transcribeSync()" disabled>同步转写</button>
+      <button class="btn btn-secondary" id="btnAsync" onclick="transcribeAsync()" disabled>提交异步任务</button>
     </div>
   </div>
 
   <!-- 结果 -->
   <div class="card" id="resultCard" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center">
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
       <h2 style="margin:0">转写结果</h2>
-      <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('resultText').textContent)">📋 复制文本</button>
+      <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('resultText').textContent)">复制文本</button>
     </div>
     <div class="result-meta" id="resultMeta"></div>
     <div class="result-box" id="resultText" style="white-space:pre-wrap"></div>
@@ -95,7 +135,7 @@
     <details id="jsonDetails">
       <summary>📋 查看/复制原始 JSON 响应</summary>
       <div style="position:relative">
-        <button class="btn btn-sm btn-secondary" style="position:absolute;top:8px;right:8px" onclick="copyText(rawJsonStr)">📋 复制JSON</button>
+        <button class="btn btn-sm btn-secondary" style="position:absolute;top:8px;right:8px" onclick="copyText(rawJsonStr)">复制 JSON</button>
         <pre class="json-viewer" id="rawJson"></pre>
       </div>
     </details>
@@ -132,16 +172,30 @@ function clearFile() {
 
 function getParams() {
   const hw = document.getElementById('hotwords').value.trim();
+  const speakerGroup = document.getElementById('speakerGroup').value.trim();
+  const speakerMatch = document.getElementById('speakerMatch').checked;
+  if (speakerMatch && !speakerGroup) {
+    throw new Error('开启声纹匹配时必须填写声纹组 ID');
+  }
   return {
     language: document.getElementById('language').value,
-    diarization: document.getElementById('spk').checked,
-    speaker_group: document.getElementById('speakerGroup').value.trim() || undefined,
-    speaker_match: !!document.getElementById('speakerGroup').value.trim(),
+    diarization: document.getElementById('spk').checked || speakerMatch,
+    speaker_group: speakerGroup || undefined,
+    speaker_match: speakerMatch,
     emotion: document.getElementById('emotion').checked,
     events: document.getElementById('events').checked,
     punctuation: document.getElementById('punc').checked,
+    raw: document.getElementById('raw').checked,
+    fallback: document.getElementById('fallback').value,
     hotwords: hw || undefined,
   };
+}
+
+function getTaskParams() {
+  const params = getParams();
+  delete params.raw;
+  delete params.fallback;
+  return params;
 }
 
 async function transcribeSync() {
@@ -151,8 +205,11 @@ async function transcribeSync() {
   try {
     const data = await FunASRApi.transcribe(selectedFile, getParams());
     showResult(data);
-  } catch(e) { toast('转写失败: '+e.message, 'error'); }
-  btn.disabled = false; btn.innerHTML = '⚡ 同步转写（短音频）';
+  } catch(e) {
+    toast('转写失败: '+e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '同步转写';
+  }
 }
 
 async function transcribeAsync() {
@@ -160,18 +217,21 @@ async function transcribeAsync() {
   const btn = document.getElementById('btnAsync');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 提交中...';
   try {
-    const task = await FunASRApi.submitTask(selectedFile, getParams());
-    toast(`任务已提交！task_id: ${task.task_id}，请到任务管理查看结果`, 'info', 6000);
-  } catch(e) { toast('提交失败: '+e.message, 'error'); }
-  btn.disabled = false; btn.innerHTML = '📦 异步转写（长文件）';
+    const task = await FunASRApi.submitTask(selectedFile, getTaskParams());
+    toast(`任务已提交：${task.task_id}，请到任务管理查看结果`, 'info', 6000);
+  } catch(e) {
+    toast('提交失败: '+e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.innerHTML = '提交异步任务';
+  }
 }
 
 async function submitUrl() {
   const url = document.getElementById('urlInput').value.trim();
   if (!url) return toast('请输入 URL','error');
   try {
-    const task = await FunASRApi.submitTask(url, getParams());
-    toast(`URL 任务已提交！task_id: ${task.task_id}`, 'info', 6000);
+    const task = await FunASRApi.submitTask(url, getTaskParams());
+    toast(`URL 任务已提交：${task.task_id}`, 'info', 6000);
   } catch(e) { toast('提交失败: '+e.message, 'error'); }
 }
 
@@ -189,10 +249,11 @@ function showResult(data) {
   if (data.language) meta.push('语言: '+data.language);
   if (data.duration) meta.push('耗时: '+data.duration+'s');
   if (data.emotion) meta.push('情感: '+data.emotion);
-  if (data.events?.length) meta.push('事件: '+data.events.join(' '));
+  if (data.events?.length) meta.push('事件: '+data.events.join('、'));
   if (data.paragraph_count !== undefined) meta.push('段落: '+data.paragraph_count);
   if (data.sentence_count !== undefined) meta.push('句子: '+data.sentence_count);
   if (data.speaker_group) meta.push('声纹组: '+data.speaker_group);
+  if (data.features?.warnings?.length) meta.push('提醒: '+data.features.warnings.length);
   document.getElementById('resultMeta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
 
   // 分段时间轴
@@ -201,11 +262,12 @@ function showResult(data) {
     let html = '';
     timeline.forEach(s => {
       const speakerId = s.speaker?.id ? parseInt(String(s.speaker.id).replace('speaker_', ''), 10) : undefined;
-      const speakerName = s.speaker?.name || s.speaker;
-      const spk = speakerName ? `<span class="badge ${speakerColor(speakerId)}">${speakerName}</span>` : (s.speaker?.id ? `<span class="badge ${speakerColor(speakerId)}">${s.speaker.id}</span>` : '');
+      const speakerName = s.speaker?.name || s.speaker?.id || s.speaker;
+      const spk = speakerName ? `<span class="badge ${speakerColor(speakerId)}">${speakerName}</span>` : '';
+      const extra = [s.emotion, ...(s.events || [])].filter(Boolean).map(x => `<span class="muted">${x}</span>`).join(' ');
       html += `<div class="timeline-item">
         <div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div>
-        <div class="timeline-content">${spk} ${s.text}</div>
+        <div class="timeline-content">${spk} ${s.text} ${extra}</div>
       </div>`;
     });
     document.getElementById('timelineView').innerHTML = html;

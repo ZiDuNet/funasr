@@ -15,8 +15,34 @@
   <a href="status.html">⚙️ 服务状态</a>
 </nav>
 <div class="container">
-  <h1>异步任务管理</h1>
-  <p class="desc">长文件/URL 异步转写，提交后通过 task_id 查询结果。结果保留 <span id="ttlDays">7</span> 天自动清理。</p>
+  <div class="page-head">
+    <div>
+      <h1>异步任务管理</h1>
+      <p class="desc">长文件和远程 URL 会进入任务队列，通过 <code>task_id</code> 查询标准转写结果。</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-secondary" href="index.html">提交新任务</a>
+      <a class="btn btn-secondary" href="/docs">查看 /docs</a>
+    </div>
+  </div>
+
+  <div class="interface-grid">
+    <div class="interface-card">
+      <div class="label">提交任务</div>
+      <div class="value"><span class="endpoint">POST /api/v1/transcription-jobs</span></div>
+      <div class="hint">支持文件或 URL，参数和同步转写保持一致。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">查询任务</div>
+      <div class="value"><span class="endpoint">GET /api/v1/transcription-jobs/{id}</span></div>
+      <div class="hint">完成后返回 <code>result.text</code>、句子时间轴和增强字段。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">数据保留</div>
+      <div class="value"><span id="ttlDays">7</span> 天</div>
+      <div class="hint">过期任务和音频文件会自动清理。</div>
+    </div>
+  </div>
 
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px">
@@ -27,17 +53,17 @@
       </div>
     </div>
     <table>
-      <thead><tr><th>Task ID</th><th>状态</th><th>来源</th><th>音频时长</th><th>处理耗时</th><th>创建时间</th><th>操作</th></tr></thead>
-      <tbody id="taskBody"><tr><td colspan="7" style="text-align:center;color:#999">加载中...</td></tr></tbody>
+      <thead><tr><th>任务 ID</th><th>状态</th><th>来源</th><th>参数</th><th>音频时长</th><th>处理耗时</th><th>创建时间</th><th>操作</th></tr></thead>
+      <tbody id="taskBody"><tr><td colspan="8" class="empty-state">加载中...</td></tr></tbody>
     </table>
   </div>
 
   <div class="card" id="detailCard" style="display:none">
     <div style="display:flex;justify-content:space-between;align-items:center">
-      <h2 style="margin:0">详情: <code id="detailId" style="font-size:14px"></code></h2>
+      <h2 style="margin:0">任务详情：<code id="detailId" style="font-size:14px"></code></h2>
       <div>
-        <button class="btn btn-sm btn-secondary" onclick="refreshDetail()">🔄</button>
-        <button class="btn btn-sm btn-primary" onclick="copyText(document.getElementById('detailText').textContent)">📋 复制文本</button>
+        <button class="btn btn-sm btn-secondary" onclick="refreshDetail()">刷新</button>
+        <button class="btn btn-sm btn-primary" onclick="copyText(document.getElementById('detailText').textContent)">复制文本</button>
       </div>
     </div>
     <div class="result-meta" id="detailMeta" style="margin-top:12px"></div>
@@ -46,7 +72,7 @@
     <details id="taskJsonDetails" style="margin-top:12px">
       <summary>📋 查看/复制原始 JSON 响应</summary>
       <div style="position:relative">
-        <button class="btn btn-sm btn-secondary" style="position:absolute;top:8px;right:8px" onclick="copyText(taskRawJson)">📋 复制JSON</button>
+        <button class="btn btn-sm btn-secondary" style="position:absolute;top:8px;right:8px" onclick="copyText(taskRawJson)">复制 JSON</button>
         <pre class="json-viewer" id="taskRawJson"></pre>
       </div>
     </details>
@@ -63,12 +89,13 @@ async function loadTasks() {
     const tbody = document.getElementById('taskBody');
     document.getElementById('taskCount').textContent = `共 ${data.total||0} 条`;
     const jobs = data.jobs || [];
-    if (!jobs.length) { tbody.innerHTML='<tr><td colspan="7" style="text-align:center;color:#999">暂无任务</td></tr>'; return; }
+    if (!jobs.length) { tbody.innerHTML='<tr><td colspan="8" class="empty-state">暂无任务，请先在文件转写页提交长文件或 URL。</td></tr>'; return; }
     tbody.innerHTML = jobs.map(t => `
       <tr>
         <td style="font-family:monospace;font-size:13px">${t.task_id}</td>
         <td><span class="badge badge-${t.status}">${statusLabel(t.status)}</span></td>
         <td>${t.url?'🔗 URL':'📁 文件'}</td>
+        <td style="font-size:12px">${formatParams(t.params || {})}</td>
         <td>${t.audio_duration_seconds?formatDuration(t.audio_duration_seconds*1000):'-'}</td>
         <td>${t.duration_seconds?t.duration_seconds.toFixed(1)+'s':'-'}</td>
         <td style="font-size:13px">${formatTime(t.created_at)}</td>
@@ -78,7 +105,7 @@ async function loadTasks() {
         </td>
       </tr>
     `).join('');
-  } catch(e) { document.getElementById('taskBody').innerHTML=`<tr><td colspan="7" style="color:red">${e.message}</td></tr>`; }
+  } catch(e) { document.getElementById('taskBody').innerHTML=`<tr><td colspan="8" style="color:red">${e.message}</td></tr>`; }
 }
 
 async function viewTask(tid) {
@@ -117,6 +144,8 @@ function renderDetail(task) {
     if (task.result.paragraph_count !== undefined) meta.push('段落: '+task.result.paragraph_count);
     if (task.result.sentence_count !== undefined) meta.push('句子: '+task.result.sentence_count);
     if (task.result.speaker_group) meta.push('声纹组: '+task.result.speaker_group);
+    if (task.params) meta.push('参数: '+formatParams(task.params));
+    if (task.result.features?.warnings?.length) meta.push('提醒: '+task.result.features.warnings.length);
     metaEl.innerHTML = meta.map(m => `<span>${m}</span>`).join('');
 
     const timeline = task.result.sentences || [];
@@ -124,7 +153,8 @@ function renderDetail(task) {
       timelineEl.innerHTML = timeline.map(s => {
         const speakerId = s.speaker?.id ? parseInt(String(s.speaker.id).replace('speaker_', ''), 10) : undefined;
         const spk = s.speaker?.name ? `<span class="badge ${speakerColor(speakerId)}">${s.speaker.name}</span>` : (s.speaker?.id ? `<span class="badge ${speakerColor(speakerId)}">${s.speaker.id}</span>` : '');
-        return `<div class="timeline-item"><div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div><div class="timeline-content">${spk} ${s.text}</div></div>`;
+        const extra = [s.emotion, ...(s.events || [])].filter(Boolean).map(x => `<span class="muted">${x}</span>`).join(' ');
+        return `<div class="timeline-item"><div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div><div class="timeline-content">${spk} ${s.text} ${extra}</div></div>`;
       }).join('');
     } else { timelineEl.innerHTML = ''; }
   } else if (task.status==='failed') {
@@ -137,6 +167,18 @@ function renderDetail(task) {
 }
 
 async function del(tid) { if (confirm(`删除任务 ${tid}?`)) { await FunASRApi.deleteTask(tid); if (currentTaskId===tid) document.getElementById('detailCard').style.display='none'; loadTasks(); }}
+
+function formatParams(params) {
+  const parts = [];
+  if (params.language && params.language !== 'auto') parts.push(`语言:${params.language}`);
+  if (params.diarization) parts.push('说话人');
+  if (params.speaker_group) parts.push(`声纹:${params.speaker_group}`);
+  if (params.emotion) parts.push('情感');
+  if (params.events) parts.push('事件');
+  if (params.punctuation === false) parts.push('无标点');
+  if (params.hotwords) parts.push('热词');
+  return parts.length ? parts.join(' / ') : '默认';
+}
 
 loadTasks();
 setInterval(loadTasks, 30000);

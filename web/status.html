@@ -15,13 +15,39 @@
   <a href="status.html" class="active">⚙️ 服务状态</a>
 </nav>
 <div class="container">
-  <h1>服务状态</h1>
-  <p class="desc">查看模型加载状态、设备信息和运行指标</p>
+  <div class="page-head">
+    <div>
+      <h1>服务状态</h1>
+      <p class="desc">查看模型加载状态、当前能力矩阵和接口入口。</p>
+    </div>
+    <div class="page-actions">
+      <a class="btn btn-secondary" href="/docs">Swagger 文档</a>
+      <a class="btn btn-secondary" href="/realtime">实时录音</a>
+    </div>
+  </div>
+
+  <div class="interface-grid">
+    <div class="interface-card">
+      <div class="label">静态 WebUI</div>
+      <div class="value"><span class="endpoint">/web/index.html</span></div>
+      <div class="hint">文件转写、实时录音、任务和声纹管理。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">Gradio 页面</div>
+      <div class="value"><span class="endpoint">/ui</span></div>
+      <div class="hint">文件转写和接口说明；实时录音会跳转到原生页面。</div>
+    </div>
+    <div class="interface-card">
+      <div class="label">实时录音</div>
+      <div class="value"><span class="endpoint ws">/realtime</span></div>
+      <div class="hint">浏览器直连实时接口，不经过 Gradio 上传。</div>
+    </div>
+  </div>
 
   <div class="card">
     <div style="display:flex;justify-content:space-between;align-items:center">
       <h2 style="margin:0">运行状态</h2>
-      <button class="btn btn-sm btn-secondary" onclick="loadStatus()">🔄 刷新</button>
+      <button class="btn btn-sm btn-secondary" onclick="loadStatus()">刷新</button>
     </div>
     <table style="margin-top:12px">
       <tr><td style="width:160px;font-weight:600">服务状态</td><td id="status">-</td></tr>
@@ -32,14 +58,14 @@
   </div>
 
   <div class="card">
-    <h2 style="margin-top:0">🤔 我应该用哪个模型？</h2>
+    <h2 style="margin-top:0">模型选择建议</h2>
     <div class="mode-info" style="line-height:2.2">
-      <strong>🎤 中文会议/通话 + 区分说话人</strong> → <code>MODEL=paraformer</code>（快，中文最强）<br>
-      <strong>🌍 多语言（日/韩/法/德/方言等）</strong> → <code>MODEL=fun-asr-nano</code>（31 语言）<br>
-      <strong>😊 需要情感识别/音频事件</strong> → <code>MODEL=sensevoice</code>（极快，自带情感+事件）<br>
-      <strong>🏆 最高精度，不在乎延迟</strong> → <code>MODEL=qwen3-asr</code>（52 语言，需 GPU）<br>
-      <strong>📺 直播实时字幕</strong> → 任何模型 + WebSocket 2pass 模式<br>
-      <strong>🔀 识别 + 翻译</strong> → <code>MODEL=whisper-large-v3-turbo</code>（性价比高）
+      <strong>中文会议/通话 + 区分说话人</strong> → <code>MODEL=paraformer</code>（快，中文强）<br>
+      <strong>多语言（日/韩/法/德/方言等）</strong> → <code>MODEL=fun-asr-nano</code>（31 语言）<br>
+      <strong>需要情感识别/音频事件</strong> → <code>MODEL=sensevoice</code>（自带情感+事件）<br>
+      <strong>最高精度，不在乎延迟</strong> → <code>MODEL=qwen3-asr</code>（52 语言，需 GPU）<br>
+      <strong>实时会议字幕</strong> → WebSocket 2pass 模式<br>
+      <strong>识别 + 翻译</strong> → <code>MODEL=whisper-large-v3-turbo</code>
     </div>
   </div>
 
@@ -57,7 +83,7 @@
         <tr><td><code>whisper-large-v3-turbo</code></td><td>Whisper-large-v3-turbo</td><td>识别 + 翻译，多语言（加速）</td><td>809M</td><td>可选</td></tr>
       </tbody>
     </table>
-    <p style="margin-top:10px;font-size:13px;color:var(--text-secondary)">💡 高亮为当前默认模型。切换模型：<code>.env</code> → <code>MODEL=xxx</code> → <code>docker compose restart</code>。首次使用自动从魔搭下载。</p>
+    <p style="margin-top:10px;font-size:13px;color:var(--text-secondary)">高亮为当前默认模型。切换模型：<code>.env</code> → <code>MODEL=xxx</code> → <code>docker compose restart</code>。首次使用会自动从魔搭下载。</p>
   </div>
 
   <div class="card">
@@ -72,7 +98,7 @@
         <tr><td>emotion2vec+large</td><td>独立情感识别</td><td class="model-status" data-model="emotion">-</td></tr>
       </tbody>
     </table>
-    <p style="margin-top:10px;font-size:13px;color:var(--text-secondary)">⚠️ Qwen3-ASR / GLM-ASR / Whisper 不支持说话人分离、情感识别、事件检测（仅 SenseVoice 和 Paraformer 支持）。</p>
+    <p style="margin-top:10px;font-size:13px;color:var(--text-secondary)">不同主模型支持的增强能力不同；具体以 <code>/api/v1/capabilities</code> 为准，传 <code>fallback=auto</code> 时会自动跳过不支持的能力。</p>
   </div>
 
   <div class="card">
@@ -91,6 +117,7 @@
         <tr><td><code>/api/v1/speaker-groups</code></td><td>POST/GET</td><td>创建/列出声纹组</td></tr>
         <tr><td><code>/api/v1/speaker-groups/{id}/speakers</code></td><td>POST/GET</td><td>注册/列出说话人</td></tr>
         <tr><td><code>/api/v1/realtime/transcriptions</code></td><td>WebSocket</td><td>流式实时识别</td></tr>
+        <tr><td><code>/api/v1/realtime/transcriptions/protocol</code></td><td>GET</td><td>实时 WebSocket 协议说明，显示在 /docs</td></tr>
         <tr><td><code>/mcp</code></td><td>Streamable HTTP</td><td>MCP 工具接入</td></tr>
         <tr><td><code>/docs</code></td><td>GET</td><td>Swagger API 文档</td></tr>
       </tbody>
@@ -112,7 +139,7 @@
         <tr><td><code>response_format</code></td><td>string</td><td>json</td><td>json / verbose_json / text / srt / vtt</td><td>标准 API / OpenAI API</td></tr>
       </tbody>
     </table>
-    <p style="margin-top:12px;font-size:13px;color:var(--text-secondary)">💡 模型切换通过 <code>.env</code> 中 <code>MODEL=</code> 配置，不在接口参数中暴露。当前能力以 <code>/api/v1/capabilities</code> 为准。</p>
+    <p style="margin-top:12px;font-size:13px;color:var(--text-secondary)">模型切换通过 <code>.env</code> 中 <code>MODEL=</code> 配置，不在接口参数中暴露。当前能力以 <code>/api/v1/capabilities</code> 为准。</p>
   </div>
 </div>
 

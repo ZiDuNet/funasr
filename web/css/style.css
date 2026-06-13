@@ -48,6 +48,48 @@ p.desc { color: var(--text-secondary); margin-bottom: 28px; font-size: 15px; }
   margin-bottom: 20px; box-shadow: var(--shadow);
   border: 1px solid var(--border);
 }
+.page-head {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 18px; margin-bottom: 24px;
+}
+.page-head h1 { margin-bottom: 6px; }
+.page-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+.interface-grid {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 12px; margin-bottom: 20px;
+}
+.interface-card {
+  border: 1px solid var(--border); background: #fff; border-radius: 8px;
+  padding: 14px 16px;
+}
+.interface-card .label {
+  color: var(--text-secondary); font-size: 12px; font-weight: 700;
+  text-transform: uppercase;
+}
+.interface-card .value { font-size: 15px; font-weight: 700; margin-top: 4px; }
+.interface-card .hint { font-size: 12px; color: var(--text-secondary); margin-top: 4px; }
+.endpoint {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 8px;
+  border-radius: 6px; background: #eef2ff; color: #3730a3;
+  font-family: 'SF Mono','Fira Code','Consolas',monospace; font-size: 12px;
+  white-space: nowrap;
+}
+.endpoint.ws { background: #ecfeff; color: #155e75; }
+.endpoint.mcp { background: #f5f3ff; color: #5b21b6; }
+.control-note {
+  font-size: 13px; color: var(--text-secondary); background: #f8fafc;
+  border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px;
+  margin-top: 14px;
+}
+.empty-state {
+  text-align: center; color: var(--text-secondary); padding: 28px 12px;
+}
+.field-row {
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+.field-row > * { flex: 1; min-width: 180px; }
+.muted { color: var(--text-secondary); }
+.mono { font-family: 'SF Mono','Fira Code','Consolas',monospace; }
 
 /* ── 上传区域 ────────────────────────────────── */
 .upload-zone {
