@@ -32,8 +32,8 @@ WS_PROTOCOL_DOC = {
         ],
     },
     "browser_ui": {
-        "path": "/realtime",
-        "note": "原生浏览器页面直连 WebSocket，不走 /ui/gradio_api/upload。",
+        "path": "/",
+        "note": "WebUI 只有根路径；实时录音 Tab 直连 WebSocket，音频帧直接以 PCM 二进制发送。",
     },
     "session_start_example": {
         "type": "session.start",

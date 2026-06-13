@@ -7,7 +7,6 @@ python-multipart
 aiofiles
 httpx
 fastmcp>=2.3
-gradio>=4.44
 numpy
 scipy
 websockets

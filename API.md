@@ -20,20 +20,17 @@
 http://{host}:17767/
 ```
 
-根路径会跳转到 Gradio WebUI：
+WebUI 全中文，是单页控制台。不同接口类型通过页面内 Tab 切换，包含：
 
-```text
-http://{host}:17767/ui
-```
-
-WebUI 全中文，包含：
-
-- 文件转写
-- 原生 WebSocket 实时录音：`/realtime`
+- 标准转写
+- OpenAI 兼容
 - 异步任务
+- 实时 WebSocket 录音
 - 声纹组管理
 - 服务状态
 - 接口说明
+
+不再提供 Gradio，也不再使用 `/ui` 或 `/web` 页面入口。
 
 ## 认证
 

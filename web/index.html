@@ -2,280 +2,681 @@
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>FunASR - 文件转写</title>
+<title>FunASR WebUI</title>
 <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-
 <nav class="nav">
   <span class="logo">🎙️ FunASR</span>
-  <a href="index.html" class="active">📁 文件转写</a>
-  <a href="realtime.html">🎤 实时录音</a>
-  <a href="tasks.html">📋 任务管理</a>
-  <a href="speakers.html">👥 声纹管理</a>
-  <a href="status.html">⚙️ 服务状态</a>
+  <a href="/" class="active">控制台</a>
 </nav>
 
 <div class="container">
   <div class="page-head">
     <div>
-      <h1>文件转写</h1>
-      <p class="desc">上传音频/视频或输入 URL，按标准接口参数控制转写能力。</p>
+      <h1>FunASR 控制台</h1>
+      <p class="desc">一个入口管理标准转写、OpenAI 兼容、异步任务、实时 WebSocket、声纹组和服务状态。</p>
     </div>
     <div class="page-actions">
-      <a class="btn btn-secondary" href="/docs">查看 /docs</a>
-      <a class="btn btn-secondary" href="realtime.html">实时录音</a>
+      <a class="btn btn-secondary" href="/docs">Swagger 文档</a>
+      <button class="btn btn-secondary" onclick="promptToken()">设置 Token</button>
     </div>
   </div>
 
-  <div class="interface-grid">
-    <div class="interface-card">
-      <div class="label">同步接口</div>
-      <div class="value"><span class="endpoint">POST /api/v1/transcriptions</span></div>
-      <div class="hint">短音频直接返回标准 JSON，包含全文、段落、句子时间轴。</div>
-    </div>
-    <div class="interface-card">
-      <div class="label">异步接口</div>
-      <div class="value"><span class="endpoint">POST /api/v1/transcription-jobs</span></div>
-      <div class="hint">长文件或 URL 提交任务，到“任务管理”查询结果。</div>
-    </div>
-    <div class="interface-card">
-      <div class="label">参数结构</div>
-      <div class="value">能力 features / 选项 options / 兜底 fallback</div>
-      <div class="hint">页面控件会映射为后端同名字段。</div>
-    </div>
+  <div class="app-tabs" role="tablist">
+    <button class="tab-btn active" data-tab="standard" onclick="switchTab('standard')">标准转写</button>
+    <button class="tab-btn" data-tab="openai" onclick="switchTab('openai')">OpenAI 兼容</button>
+    <button class="tab-btn" data-tab="jobs" onclick="switchTab('jobs')">异步任务</button>
+    <button class="tab-btn" data-tab="realtime" onclick="switchTab('realtime')">实时 WebSocket</button>
+    <button class="tab-btn" data-tab="speakers" onclick="switchTab('speakers')">声纹管理</button>
+    <button class="tab-btn" data-tab="status" onclick="switchTab('status')">服务状态</button>
+    <button class="tab-btn" data-tab="docs" onclick="switchTab('docs')">接口说明</button>
   </div>
 
-  <!-- 上传 -->
-  <div class="card">
-    <div class="upload-zone" id="dropZone">
-      <input type="file" id="fileInput" accept="audio/*,video/*">
-      <div class="icon">📁</div>
-      <div class="text">拖拽文件到此处，或点击选择文件</div>
-      <div class="hint">支持 wav / mp3 / mp4 / flac / m4a / ogg / webm</div>
-    </div>
-    <div class="file-info" id="fileInfo">
-      <span>📄</span>
-      <span class="name" id="fileName"></span>
-      <span class="size" id="fileSize"></span>
-      <span class="remove" onclick="clearFile()">✕ 移除</span>
+  <section class="tab-panel active" id="tab-standard">
+    <div class="interface-grid">
+      <div class="interface-card"><div class="label">接口</div><div class="value"><span class="endpoint">POST /api/v1/transcriptions</span></div><div class="hint">上传文件并同步返回结果。</div></div>
+      <div class="interface-card"><div class="label">异步 URL</div><div class="value"><span class="endpoint">POST /api/v1/transcription-jobs</span></div><div class="hint">URL 和长文件进入任务队列。</div></div>
+      <div class="interface-card"><div class="label">格式</div><div class="value">json / verbose_json / text / srt / vtt</div><div class="hint">纯文本格式会直接展示内容。</div></div>
     </div>
 
-    <div class="url-row">
-      <input type="text" id="urlInput" placeholder="🔗  或输入远程音频 URL">
-      <button class="btn btn-secondary" onclick="submitUrl()">提交 URL</button>
-    </div>
-  </div>
-
-  <!-- 参数 -->
-  <div class="card">
-    <h2 style="margin-top:0">识别参数</h2>
-    <div class="params">
-      <div class="param"><label>语言（language）</label><select id="language"><option value="auto">自动检测</option><option value="zh">中文</option><option value="en">英文</option><option value="ja">日文</option><option value="ko">韩文</option><option value="yue">粤语</option></select></div>
-      <div class="param"><label>声纹组 ID（speaker_group）</label><input type="text" id="speakerGroup" placeholder="如：grp_xxx"></div>
-      <div class="param"><label>不支持能力处理（fallback）</label><select id="fallback"><option value="error">报错提醒</option><option value="auto">自动跳过</option></select></div>
-    </div>
-    <div class="param" style="margin-top:14px">
-      <label>热词（JSON 格式，提高特定词准确率）</label>
-      <textarea id="hotwords" class="hotwords-input" rows="2" placeholder='输入 JSON 格式热词，例如:&#10;{"达摩院": 20, "语音识别": 15}'></textarea>
+    <div class="card">
+      <div class="upload-zone" id="stdDrop">
+        <input type="file" id="stdFile" accept="audio/*,video/*">
+        <div class="icon">📁</div>
+        <div class="text">拖拽文件到此处，或点击选择文件</div>
+        <div class="hint">支持 wav / mp3 / mp4 / flac / m4a / ogg / webm</div>
+      </div>
+      <div class="file-info" id="stdFileInfo"><span>📄</span><span class="name" id="stdFileName"></span><span class="size" id="stdFileSize"></span><span class="remove" onclick="clearStandardFile()">✕ 移除</span></div>
+      <div class="url-row">
+        <input type="text" id="stdUrl" placeholder="远程音频 URL 走异步任务">
+        <button class="btn btn-secondary" onclick="submitStandardUrl()">提交 URL 任务</button>
+      </div>
     </div>
 
-    <!-- 功能开关 -->
-    <div style="margin-top:18px">
-      <div class="toggle">
-        <input type="checkbox" id="spk">
-        <div><label for="spk">👥 说话人分离（diarization）</label>
-        <div class="toggle-hint">识别不同说话人，返回 <code>speaker_0</code>、<code>speaker_1</code> 等匿名编号。</div></div>
+    <div class="card">
+      <h2 style="margin-top:0">标准接口参数</h2>
+      <div id="standardParams"></div>
+      <div class="btn-group">
+        <button class="btn btn-primary" id="stdSyncBtn" onclick="runStandardSync()" disabled>同步转写</button>
+        <button class="btn btn-secondary" id="stdAsyncBtn" onclick="runStandardAsync()" disabled>提交异步任务</button>
       </div>
-      <div class="toggle">
-        <input type="checkbox" id="speakerMatch">
-        <div><label for="speakerMatch">🔎 声纹匹配（speaker_match）</label>
-        <div class="toggle-hint">需要填写声纹组 ID。最终结果会尝试匹配已注册说话人姓名和分数。</div></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="emotion">
-        <div><label for="emotion">😊 情感识别</label>
-        <div class="toggle-hint">检测语音中的情感状态（😊开心、😢悲伤、😠愤怒、😟惊讶等），SenseVoice 模型自带。</div></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="events">
-        <div><label for="events">🎵 事件检测</label>
-        <div class="toggle-hint">检测音频中的非语音事件，如 👏掌声、😂笑声、🎶音乐、🤧咳嗽等。</div></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="punc" checked>
-        <div><label for="punc">📝 标点恢复（punctuation）</label>
-        <div class="toggle-hint">最终文本启用标点/ITN。部分模型自带标点，部分模型会调用标点模型。</div></div>
-      </div>
-      <div class="toggle">
-        <input type="checkbox" id="raw">
-        <div><label for="raw">🧾 返回原始结果（raw）</label>
-        <div class="toggle-hint">在标准 JSON 中附加 FunASR 原始返回，便于排查模型输出。</div></div>
-      </div>
-    </div>
-    <div class="control-note">
-      声纹匹配会自动启用说话人分离。只想区分匿名说话人时，开启“说话人分离”即可；想显示注册姓名时，再开启“声纹匹配”并填写声纹组 ID。
     </div>
 
-    <div class="btn-group">
-      <button class="btn btn-primary" id="btnSync" onclick="transcribeSync()" disabled>同步转写</button>
-      <button class="btn btn-secondary" id="btnAsync" onclick="transcribeAsync()" disabled>提交异步任务</button>
-    </div>
-  </div>
-
-  <!-- 结果 -->
-  <div class="card" id="resultCard" style="display:none">
-    <div style="display:flex;justify-content:space-between;align-items:center;gap:12px">
-      <h2 style="margin:0">转写结果</h2>
-      <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('resultText').textContent)">复制文本</button>
-    </div>
-    <div class="result-meta" id="resultMeta"></div>
-    <div class="result-box" id="resultText" style="white-space:pre-wrap"></div>
-    <div class="timeline" id="timelineView"></div>
-    <details id="jsonDetails">
-      <summary>📋 查看/复制原始 JSON 响应</summary>
-      <div style="position:relative">
-        <button class="btn btn-sm btn-secondary" style="position:absolute;top:8px;right:8px" onclick="copyText(rawJsonStr)">复制 JSON</button>
-        <pre class="json-viewer" id="rawJson"></pre>
+    <div class="card" id="stdResultCard" style="display:none">
+      <div class="inline-actions" style="justify-content:space-between">
+        <h2 style="margin:0">转写结果</h2>
+        <button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('stdText').textContent)">复制文本</button>
       </div>
-    </details>
-  </div>
+      <div class="result-meta" id="stdMeta"></div>
+      <div class="result-box" id="stdText" style="white-space:pre-wrap"></div>
+      <div class="timeline" id="stdTimeline"></div>
+      <details><summary>查看完整响应</summary><pre class="json-viewer" id="stdRaw"></pre></details>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-openai">
+    <div class="interface-grid">
+      <div class="interface-card"><div class="label">接口</div><div class="value"><span class="endpoint">POST /v1/audio/transcriptions</span></div><div class="hint">OpenAI Audio Transcriptions 兼容形态。</div></div>
+      <div class="interface-card"><div class="label">prompt</div><div class="value">映射为 hotwords</div><div class="hint">实际模型仍由服务端 MODEL 决定。</div></div>
+      <div class="interface-card"><div class="label">完整结果</div><div class="value">response_format=verbose_json</div><div class="hint">包含 segments 和扩展字段。</div></div>
+    </div>
+
+    <div class="card">
+      <div class="upload-zone" id="oaDrop">
+        <input type="file" id="oaFile" accept="audio/*,video/*">
+        <div class="icon">🔌</div>
+        <div class="text">选择文件测试 OpenAI 兼容接口</div>
+        <div class="hint">SDK 对接时使用同样的 /v1/audio/transcriptions 地址。</div>
+      </div>
+      <div class="file-info" id="oaFileInfo"><span>📄</span><span class="name" id="oaFileName"></span><span class="size" id="oaFileSize"></span><span class="remove" onclick="clearOpenAIFile()">✕ 移除</span></div>
+    </div>
+
+    <div class="card">
+      <h2 style="margin-top:0">OpenAI 参数</h2>
+      <div class="params">
+        <div class="param"><label>model</label><input id="oaModel" value="funasr"></div>
+        <div class="param"><label>language</label><select id="oaLanguage"><option value="auto">auto</option><option value="zh">zh</option><option value="en">en</option><option value="ja">ja</option><option value="ko">ko</option><option value="yue">yue</option></select></div>
+        <div class="param"><label>response_format</label><select id="oaFormat"><option value="json">json</option><option value="verbose_json">verbose_json</option><option value="text">text</option><option value="srt">srt</option><option value="vtt">vtt</option></select></div>
+        <div class="param"><label>timestamp_granularities</label><select id="oaGranularities"><option value="">不请求</option><option value="word">word</option></select></div>
+        <div class="param"><label>speaker_group</label><input id="oaSpeakerGroup" placeholder="grp_xxx"></div>
+        <div class="param"><label>fallback</label><select id="oaFallback"><option value="error">error</option><option value="auto">auto</option></select></div>
+      </div>
+      <div class="param" style="margin-top:14px"><label>prompt</label><textarea id="oaPrompt" class="hotwords-input" placeholder='会映射为 hotwords，例如 {"达摩院": 20}'></textarea></div>
+      <div id="openaiFeatures"></div>
+      <div class="control-note">默认 <code>json</code> 只返回 <code>{"text":"..."}</code>；要看时间轴、说话人和扩展字段请选择 <code>verbose_json</code>。</div>
+      <div class="btn-group"><button class="btn btn-primary" id="oaRunBtn" onclick="runOpenAI()" disabled>调用 OpenAI 兼容接口</button></div>
+    </div>
+
+    <div class="card" id="oaResultCard" style="display:none">
+      <div class="inline-actions" style="justify-content:space-between"><h2 style="margin:0">OpenAI 响应</h2><button class="btn btn-sm btn-secondary" onclick="copyText(document.getElementById('oaText').textContent)">复制文本</button></div>
+      <div class="result-meta" id="oaMeta"></div>
+      <div class="result-box" id="oaText" style="white-space:pre-wrap"></div>
+      <div class="timeline" id="oaTimeline"></div>
+      <details><summary>查看完整响应</summary><pre class="json-viewer" id="oaRaw"></pre></details>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-jobs">
+    <div class="interface-grid">
+      <div class="interface-card"><div class="label">提交</div><div class="value"><span class="endpoint">POST /api/v1/transcription-jobs</span></div><div class="hint">文件或 URL 二选一。</div></div>
+      <div class="interface-card"><div class="label">查询</div><div class="value"><span class="endpoint">GET /api/v1/transcription-jobs/{id}</span></div><div class="hint">任务完成后返回 result。</div></div>
+      <div class="interface-card"><div class="label">任务数</div><div class="value" id="jobCount">-</div><div class="hint">每 30 秒自动刷新。</div></div>
+    </div>
+    <div class="card">
+      <div class="inline-actions" style="justify-content:space-between"><h2 style="margin:0">任务列表</h2><button class="btn btn-sm btn-secondary" onclick="loadTasks()">刷新</button></div>
+      <table><thead><tr><th>任务 ID</th><th>状态</th><th>来源</th><th>参数</th><th>耗时</th><th>创建时间</th><th>操作</th></tr></thead><tbody id="taskBody"><tr><td colspan="7" class="empty-state">加载中...</td></tr></tbody></table>
+    </div>
+    <div class="card" id="jobDetailCard" style="display:none">
+      <div class="inline-actions" style="justify-content:space-between"><h2 style="margin:0">任务详情：<code id="jobDetailId"></code></h2><button class="btn btn-sm btn-secondary" onclick="refreshTaskDetail()">刷新</button></div>
+      <div class="result-meta" id="jobMeta"></div>
+      <div class="result-box" id="jobText" style="white-space:pre-wrap"></div>
+      <div class="timeline" id="jobTimeline"></div>
+      <details><summary>查看任务 JSON</summary><pre class="json-viewer" id="jobRaw"></pre></details>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-realtime">
+    <div class="interface-grid">
+      <div class="interface-card"><div class="label">接口</div><div class="value"><span class="endpoint ws">WS /api/v1/realtime/transcriptions</span></div><div class="hint">原生 WebSocket，不走上传接口。</div></div>
+      <div class="interface-card"><div class="label">流程</div><div class="value">session.start → PCM → audio.end</div><div class="hint">16k 单声道 signed int16 little-endian PCM。</div></div>
+      <div class="interface-card"><div class="label">模式</div><div class="value">online / offline / 2pass</div><div class="hint">会议录音推荐 2pass。</div></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">实时会话参数</h2>
+      <div class="params">
+        <div class="param"><label>mode</label><select id="rtMode"><option value="2pass">2pass</option><option value="online">online</option><option value="offline">offline</option></select></div>
+        <div class="param"><label>language</label><select id="rtLanguage"><option value="auto">auto</option><option value="zh">zh</option><option value="en">en</option><option value="ja">ja</option><option value="ko">ko</option><option value="yue">yue</option></select></div>
+        <div class="param"><label>speaker_group</label><input id="rtSpeakerGroup" placeholder="grp_xxx"></div>
+      </div>
+      <div class="param" style="margin-top:14px"><label>hotwords</label><textarea id="rtHotwords" class="hotwords-input" placeholder='{"FunASR": 20}'></textarea></div>
+      <div id="realtimeFeatures"></div>
+      <button class="record-btn" id="recordBtn" onclick="toggleRecord()">🎤</button>
+      <div class="record-meter" id="recordMeter"><span></span><span></span><span></span><span></span><span></span></div>
+      <p id="micHint" class="control-note" style="display:none"></p>
+      <div class="result-meta"><span id="rtStatus">等待开始</span><span id="rtCount"></span></div>
+    </div>
+    <div class="card">
+      <div class="meeting-live">
+        <div class="current-speaker"><span class="speaking-dot"></span><span id="currentStatus">等待开始</span></div>
+        <div class="current-text" id="partialText">点击麦克风后，当前发言会在这里实时滚动显示。</div>
+        <div class="final-text" id="finalText"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="inline-actions" style="justify-content:space-between"><h2 style="margin:0">历史片段</h2><button class="btn btn-sm btn-secondary" onclick="clearRealtimeHistory()">清空</button></div>
+      <div class="meeting-history" id="rtHistory"></div>
+      <details><summary>查看最近一条原始 JSON</summary><pre class="json-viewer" id="rtRaw"></pre></details>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-speakers">
+    <div class="interface-grid">
+      <div class="interface-card"><div class="label">创建组</div><div class="value"><span class="endpoint">POST /api/v1/speaker-groups</span></div><div class="hint">不填组 ID 时自动新建。</div></div>
+      <div class="interface-card"><div class="label">注册说话人</div><div class="value"><span class="endpoint">POST /api/v1/speaker-groups/{id}/speakers</span></div><div class="hint">上传参考音频并命名。</div></div>
+      <div class="interface-card"><div class="label">转写使用</div><div class="value">speaker_group + speaker_match</div><div class="hint">复制组 ID 填到转写参数里。</div></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">注册说话人</h2>
+      <div class="params">
+        <div class="param"><label>声纹组 ID</label><input id="spkGroup" placeholder="留空则新建"></div>
+        <div class="param"><label>说话人名称</label><input id="spkName" placeholder="例如：张三"></div>
+        <div class="param"><label>参考音频</label><input type="file" id="spkAudio" accept="audio/*,video/*"></div>
+      </div>
+      <div class="btn-group"><button class="btn btn-primary" onclick="registerSpeaker()">注册声纹</button><button class="btn btn-secondary" onclick="loadGroups()">刷新列表</button></div>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">声纹组</h2>
+      <table><thead><tr><th>组 ID</th><th>人数</th><th>说话人</th><th>操作</th></tr></thead><tbody id="groupsBody"><tr><td colspan="4" class="empty-state">加载中...</td></tr></tbody></table>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-status">
+    <div class="interface-grid">
+      <div class="interface-card"><div class="label">WebUI</div><div class="value"><span class="endpoint">/</span></div><div class="hint">唯一页面入口。</div></div>
+      <div class="interface-card"><div class="label">健康检查</div><div class="value"><span class="endpoint">GET /health</span></div><div class="hint">模型和设备状态。</div></div>
+      <div class="interface-card"><div class="label">MCP</div><div class="value"><span class="endpoint mcp">/mcp</span></div><div class="hint">Streamable HTTP 工具接入。</div></div>
+    </div>
+    <div class="card">
+      <div class="inline-actions" style="justify-content:space-between"><h2 style="margin:0">运行状态</h2><button class="btn btn-sm btn-secondary" onclick="loadStatus()">刷新</button></div>
+      <table><tbody><tr><td style="font-weight:700;width:160px">状态</td><td id="svcStatus">-</td></tr><tr><td style="font-weight:700">设备</td><td id="svcDevice">-</td></tr><tr><td style="font-weight:700">模型</td><td id="svcModel">-</td></tr><tr><td style="font-weight:700">已加载模块</td><td id="svcLoaded">-</td></tr></tbody></table>
+    </div>
+    <div class="card">
+      <h2 style="margin-top:0">当前能力</h2>
+      <pre class="json-viewer" id="capabilitiesJson">加载中...</pre>
+    </div>
+  </section>
+
+  <section class="tab-panel" id="tab-docs">
+    <div class="card">
+      <h2 style="margin-top:0">接口和参数对照</h2>
+      <table>
+        <thead><tr><th>类型</th><th>端点</th><th>用途</th><th>主要参数</th></tr></thead>
+        <tbody>
+          <tr><td>标准同步</td><td><code>/api/v1/transcriptions</code></td><td>文件上传后同步返回</td><td><code>file, language, diarization, speaker_match, speaker_group, emotion, events, punctuation, hotwords, words, raw, fallback, response_format</code></td></tr>
+          <tr><td>OpenAI 兼容</td><td><code>/v1/audio/transcriptions</code></td><td>兼容 OpenAI SDK</td><td><code>file, model, language, prompt, response_format, timestamp_granularities</code>，并支持增强参数</td></tr>
+          <tr><td>异步任务</td><td><code>/api/v1/transcription-jobs</code></td><td>长文件或远程 URL</td><td>标准同步参数 + <code>url</code></td></tr>
+          <tr><td>实时流式</td><td><code>/api/v1/realtime/transcriptions</code></td><td>浏览器麦克风实时识别</td><td><code>session.start</code> JSON + PCM 二进制帧</td></tr>
+          <tr><td>声纹管理</td><td><code>/api/v1/speaker-groups</code></td><td>注册和管理说话人</td><td><code>group_id, name, audio</code></td></tr>
+        </tbody>
+      </table>
+      <div class="control-note">WebUI 只有根路径 <code>/</code>。不再提供 Gradio，不再使用 <code>/ui</code>、<code>/web</code> 或多页面入口。</div>
+    </div>
+  </section>
 </div>
 
 <script src="js/api.js"></script>
+<script src="js/ws.js"></script>
 <script>
-let selectedFile = null, rawJsonStr = '';
-const dropZone = document.getElementById('dropZone');
-const fileInput = document.getElementById('fileInput');
+let standardFile = null, openaiFile = null;
+let currentTaskId = null, taskPoller = null;
+let ws = null, recorder = null, rtRecording = false, rtStartAt = 0, rtHistory = [];
 
-dropZone.onclick = () => fileInput.click();
-dropZone.ondragover = e => { e.preventDefault(); dropZone.classList.add('dragover'); };
-dropZone.ondragleave = () => dropZone.classList.remove('dragover');
-dropZone.ondrop = e => { e.preventDefault(); dropZone.classList.remove('dragover'); handleFile(e.dataTransfer.files[0]); };
-fileInput.onchange = e => handleFile(e.target.files[0]);
+function switchTab(name) {
+  if (!document.getElementById(`tab-${name}`)) name = 'standard';
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === name));
+  document.querySelectorAll('.tab-panel').forEach(panel => panel.classList.toggle('active', panel.id === `tab-${name}`));
+  if (name === 'jobs') loadTasks();
+  if (name === 'speakers') loadGroups();
+  if (name === 'status') loadStatus();
+  if (location.hash !== `#${name}`) location.hash = name;
+}
 
-function handleFile(file) {
+function featureControls(prefix) {
+  return `
+    <div style="margin-top:18px">
+      <div class="toggle"><input type="checkbox" id="${prefix}Spk"><div><label for="${prefix}Spk">👥 说话人分离</label><div class="toggle-hint">返回 speaker_0、speaker_1 等匿名编号。</div></div></div>
+      <div class="toggle"><input type="checkbox" id="${prefix}SpeakerMatch"><div><label for="${prefix}SpeakerMatch">🔎 声纹匹配</label><div class="toggle-hint">需要填写声纹组 ID，会尝试返回注册姓名和分数。</div></div></div>
+      <div class="toggle"><input type="checkbox" id="${prefix}Emotion"><div><label for="${prefix}Emotion">😊 情感识别</label></div></div>
+      <div class="toggle"><input type="checkbox" id="${prefix}Events"><div><label for="${prefix}Events">🎵 事件检测</label></div></div>
+      <div class="toggle"><input type="checkbox" id="${prefix}Punc" checked><div><label for="${prefix}Punc">📝 标点恢复</label></div></div>
+    </div>`;
+}
+
+function renderStandardParams() {
+  document.getElementById('standardParams').innerHTML = `
+    <div class="params">
+      <div class="param"><label>language</label><select id="stdLanguage"><option value="auto">auto</option><option value="zh">zh</option><option value="en">en</option><option value="ja">ja</option><option value="ko">ko</option><option value="yue">yue</option></select></div>
+      <div class="param"><label>speaker_group</label><input id="stdSpeakerGroup" placeholder="grp_xxx"></div>
+      <div class="param"><label>fallback</label><select id="stdFallback"><option value="error">error</option><option value="auto">auto</option></select></div>
+      <div class="param"><label>response_format</label><select id="stdFormat"><option value="json">json</option><option value="verbose_json">verbose_json</option><option value="text">text</option><option value="srt">srt</option><option value="vtt">vtt</option></select></div>
+    </div>
+    <div class="param" style="margin-top:14px"><label>hotwords</label><textarea id="stdHotwords" class="hotwords-input" placeholder='{"达摩院": 20}'></textarea></div>
+    ${featureControls('std')}
+    <div class="toggle"><input type="checkbox" id="stdRaw"><div><label for="stdRaw">🧾 raw 原始结果</label></div></div>
+    <div class="toggle"><input type="checkbox" id="stdWords"><div><label for="stdWords">⏱️ words 词级时间戳</label></div></div>
+    <div class="control-note">声纹匹配会自动启用说话人分离。URL 和长文件建议走异步任务。</div>`;
+  document.getElementById('openaiFeatures').innerHTML = featureControls('oa');
+  document.getElementById('realtimeFeatures').innerHTML = featureControls('rt');
+}
+
+function setupDrop(zoneId, inputId, onFile) {
+  const zone = document.getElementById(zoneId);
+  const input = document.getElementById(inputId);
+  zone.onclick = () => input.click();
+  zone.ondragover = e => { e.preventDefault(); zone.classList.add('dragover'); };
+  zone.ondragleave = () => zone.classList.remove('dragover');
+  zone.ondrop = e => { e.preventDefault(); zone.classList.remove('dragover'); onFile(e.dataTransfer.files[0]); };
+  input.onchange = e => onFile(e.target.files[0]);
+}
+
+function setStandardFile(file) {
   if (!file) return;
-  selectedFile = file;
-  document.getElementById('fileInfo').style.display = 'flex';
-  document.getElementById('fileName').textContent = file.name;
-  document.getElementById('fileSize').textContent = formatBytes(file.size);
-  document.getElementById('btnSync').disabled = false;
-  document.getElementById('btnAsync').disabled = false;
+  standardFile = file;
+  document.getElementById('stdFileInfo').style.display = 'flex';
+  document.getElementById('stdFileName').textContent = file.name;
+  document.getElementById('stdFileSize').textContent = formatBytes(file.size);
+  document.getElementById('stdSyncBtn').disabled = false;
+  document.getElementById('stdAsyncBtn').disabled = false;
 }
-function clearFile() {
-  selectedFile = null;
-  document.getElementById('fileInfo').style.display = 'none';
-  document.getElementById('btnSync').disabled = true;
-  document.getElementById('btnAsync').disabled = true;
+function clearStandardFile() {
+  standardFile = null;
+  document.getElementById('stdFileInfo').style.display = 'none';
+  document.getElementById('stdSyncBtn').disabled = true;
+  document.getElementById('stdAsyncBtn').disabled = true;
+}
+function setOpenAIFile(file) {
+  if (!file) return;
+  openaiFile = file;
+  document.getElementById('oaFileInfo').style.display = 'flex';
+  document.getElementById('oaFileName').textContent = file.name;
+  document.getElementById('oaFileSize').textContent = formatBytes(file.size);
+  document.getElementById('oaRunBtn').disabled = false;
+}
+function clearOpenAIFile() {
+  openaiFile = null;
+  document.getElementById('oaFileInfo').style.display = 'none';
+  document.getElementById('oaRunBtn').disabled = true;
 }
 
-function getParams() {
-  const hw = document.getElementById('hotwords').value.trim();
-  const speakerGroup = document.getElementById('speakerGroup').value.trim();
-  const speakerMatch = document.getElementById('speakerMatch').checked;
-  if (speakerMatch && !speakerGroup) {
-    throw new Error('开启声纹匹配时必须填写声纹组 ID');
-  }
+function readFeatures(prefix, speakerGroup) {
+  const speakerMatch = document.getElementById(`${prefix}SpeakerMatch`).checked;
+  if (speakerMatch && !speakerGroup) throw new Error('开启声纹匹配时必须填写声纹组 ID');
   return {
-    language: document.getElementById('language').value,
-    diarization: document.getElementById('spk').checked || speakerMatch,
-    speaker_group: speakerGroup || undefined,
+    diarization: document.getElementById(`${prefix}Spk`).checked || speakerMatch,
     speaker_match: speakerMatch,
-    emotion: document.getElementById('emotion').checked,
-    events: document.getElementById('events').checked,
-    punctuation: document.getElementById('punc').checked,
-    raw: document.getElementById('raw').checked,
-    fallback: document.getElementById('fallback').value,
-    hotwords: hw || undefined,
+    emotion: document.getElementById(`${prefix}Emotion`).checked,
+    events: document.getElementById(`${prefix}Events`).checked,
+    punctuation: document.getElementById(`${prefix}Punc`).checked,
   };
 }
 
-function getTaskParams() {
-  const params = getParams();
-  delete params.raw;
-  delete params.fallback;
-  return params;
+function standardParams() {
+  const speakerGroup = document.getElementById('stdSpeakerGroup').value.trim();
+  return {
+    language: document.getElementById('stdLanguage').value,
+    speaker_group: speakerGroup || undefined,
+    hotwords: document.getElementById('stdHotwords').value.trim() || undefined,
+    fallback: document.getElementById('stdFallback').value,
+    response_format: document.getElementById('stdFormat').value,
+    raw: document.getElementById('stdRaw').checked,
+    words: document.getElementById('stdWords').checked,
+    ...readFeatures('std', speakerGroup),
+  };
 }
 
-async function transcribeSync() {
-  if (!selectedFile) return;
-  const btn = document.getElementById('btnSync');
+async function runStandardSync() {
+  if (!standardFile) return;
+  const btn = document.getElementById('stdSyncBtn');
   btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 转写中...';
   try {
-    const data = await FunASRApi.transcribe(selectedFile, getParams());
-    showResult(data);
-  } catch(e) {
-    toast('转写失败: '+e.message, 'error');
-  } finally {
-    btn.disabled = false; btn.innerHTML = '同步转写';
-  }
+    showResult('std', await FunASRApi.transcribe(standardFile, standardParams()));
+  } catch(e) { toast('转写失败: '+e.message, 'error'); }
+  btn.disabled = false; btn.innerHTML = '同步转写';
 }
 
-async function transcribeAsync() {
-  if (!selectedFile) return;
-  const btn = document.getElementById('btnAsync');
-  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 提交中...';
+async function runStandardAsync() {
+  if (!standardFile) return;
   try {
-    const task = await FunASRApi.submitTask(selectedFile, getTaskParams());
-    toast(`任务已提交：${task.task_id}，请到任务管理查看结果`, 'info', 6000);
-  } catch(e) {
-    toast('提交失败: '+e.message, 'error');
-  } finally {
-    btn.disabled = false; btn.innerHTML = '提交异步任务';
-  }
-}
-
-async function submitUrl() {
-  const url = document.getElementById('urlInput').value.trim();
-  if (!url) return toast('请输入 URL','error');
-  try {
-    const task = await FunASRApi.submitTask(url, getTaskParams());
-    toast(`URL 任务已提交：${task.task_id}`, 'info', 6000);
+    const task = await FunASRApi.submitTask(standardFile, standardParams());
+    toast(`任务已提交：${task.task_id}`, 'info', 6000);
+    switchTab('jobs');
   } catch(e) { toast('提交失败: '+e.message, 'error'); }
 }
 
-function showResult(data) {
-  document.getElementById('resultCard').style.display = 'block';
-  document.getElementById('resultText').textContent = data.text || '';
+async function submitStandardUrl() {
+  const url = document.getElementById('stdUrl').value.trim();
+  if (!url) return toast('请输入 URL', 'error');
+  try {
+    const task = await FunASRApi.submitTask(url, standardParams());
+    toast(`URL 任务已提交：${task.task_id}`, 'info', 6000);
+    switchTab('jobs');
+  } catch(e) { toast('提交失败: '+e.message, 'error'); }
+}
 
-  // 原始 JSON
-  rawJsonStr = JSON.stringify(data, null, 2);
-  document.getElementById('rawJson').textContent = rawJsonStr;
+function openaiParams() {
+  const speakerGroup = document.getElementById('oaSpeakerGroup').value.trim();
+  return {
+    model: document.getElementById('oaModel').value.trim() || 'funasr',
+    language: document.getElementById('oaLanguage').value,
+    prompt: document.getElementById('oaPrompt').value.trim() || undefined,
+    response_format: document.getElementById('oaFormat').value,
+    timestamp_granularities: document.getElementById('oaGranularities').value || undefined,
+    speaker_group: speakerGroup || undefined,
+    fallback: document.getElementById('oaFallback').value,
+    ...readFeatures('oa', speakerGroup),
+  };
+}
 
-  // 元信息
+async function runOpenAI() {
+  if (!openaiFile) return;
+  const btn = document.getElementById('oaRunBtn');
+  btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> 调用中...';
+  try {
+    showResult('oa', await FunASRApi.transcribeOpenAI(openaiFile, openaiParams()));
+  } catch(e) { toast('调用失败: '+e.message, 'error'); }
+  btn.disabled = false; btn.innerHTML = '调用 OpenAI 兼容接口';
+}
+
+function normalizeResult(data) {
+  if (!data || typeof data !== 'object') return { text: String(data || ''), raw: String(data || '') };
+  const json = data.json && typeof data.json === 'object' ? data.json : data;
+  return {
+    text: data.text || json.text || '',
+    json,
+    raw: JSON.stringify(data, null, 2),
+    timeline: data.segments || json.segments || json.sentences || [],
+  };
+}
+
+function showResult(prefix, data) {
+  const normalized = normalizeResult(data);
+  document.getElementById(`${prefix}ResultCard`).style.display = 'block';
+  document.getElementById(`${prefix}Text`).textContent = normalized.text;
+  document.getElementById(`${prefix}Raw`).textContent = normalized.raw;
   const meta = [];
-  if (data.model) meta.push('模型: '+data.model);
-  if (data.language) meta.push('语言: '+data.language);
-  if (data.duration) meta.push('耗时: '+data.duration+'s');
-  if (data.emotion) meta.push('情感: '+data.emotion);
-  if (data.events?.length) meta.push('事件: '+data.events.join('、'));
-  if (data.paragraph_count !== undefined) meta.push('段落: '+data.paragraph_count);
-  if (data.sentence_count !== undefined) meta.push('句子: '+data.sentence_count);
-  if (data.speaker_group) meta.push('声纹组: '+data.speaker_group);
-  if (data.features?.warnings?.length) meta.push('提醒: '+data.features.warnings.length);
-  document.getElementById('resultMeta').innerHTML = meta.map(m => `<span>${m}</span>`).join('');
+  const json = normalized.json || {};
+  if (json.model) meta.push('模型: '+json.model);
+  if (json.language) meta.push('语言: '+json.language);
+  if (json.duration) meta.push('时长: '+json.duration+'s');
+  if (data.format) meta.push('格式: '+data.format);
+  if (json.emotion) meta.push('情感: '+json.emotion);
+  if (json.events?.length) meta.push('事件: '+json.events.join('、'));
+  if (json.sentence_count !== undefined) meta.push('句子: '+json.sentence_count);
+  document.getElementById(`${prefix}Meta`).innerHTML = meta.map(m => `<span>${escapeHtml(m)}</span>`).join('');
+  renderTimeline(`${prefix}Timeline`, normalized.timeline);
+}
 
-  // 分段时间轴
-  const timeline = data.sentences || [];
-  if (timeline.length) {
-    let html = '';
-    timeline.forEach(s => {
-      const speakerId = s.speaker?.id ? parseInt(String(s.speaker.id).replace('speaker_', ''), 10) : undefined;
-      const speakerName = s.speaker?.name || s.speaker?.id || s.speaker;
-      const spk = speakerName ? `<span class="badge ${speakerColor(speakerId)}">${speakerName}</span>` : '';
-      const extra = [s.emotion, ...(s.events || [])].filter(Boolean).map(x => `<span class="muted">${x}</span>`).join(' ');
-      html += `<div class="timeline-item">
-        <div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div>
-        <div class="timeline-content">${spk} ${s.text} ${extra}</div>
-      </div>`;
-    });
-    document.getElementById('timelineView').innerHTML = html;
-  } else {
-    document.getElementById('timelineView').innerHTML = '';
+function renderTimeline(id, timeline) {
+  document.getElementById(id).innerHTML = (timeline || []).map(s => {
+    const speakerId = s.speaker?.id ? parseInt(String(s.speaker.id).replace('speaker_', ''), 10) : undefined;
+    const speakerName = s.speaker?.name || s.speaker?.id || s.speaker;
+    const spk = speakerName ? `<span class="badge ${speakerColor(speakerId)}">${escapeHtml(speakerName)}</span>` : '';
+    const extra = [s.emotion, ...(s.events || [])].filter(Boolean).map(x => `<span class="muted">${escapeHtml(x)}</span>`).join(' ');
+    return `<div class="timeline-item"><div class="timeline-time">${(s.start||0).toFixed(1)}s - ${(s.end||0).toFixed(1)}s</div><div class="timeline-content">${spk} ${escapeHtml(s.text || '')} ${extra}</div></div>`;
+  }).join('');
+}
+
+async function loadTasks() {
+  try {
+    const data = await FunASRApi.listTasks();
+    const jobs = data.jobs || [];
+    document.getElementById('jobCount').textContent = String(data.total || 0);
+    const tbody = document.getElementById('taskBody');
+    if (!jobs.length) {
+      tbody.innerHTML = '<tr><td colspan="7" class="empty-state">暂无任务，请先提交文件或 URL。</td></tr>';
+      return;
+    }
+    tbody.innerHTML = jobs.map(t => `<tr><td class="mono">${t.task_id}</td><td><span class="badge badge-${t.status}">${statusLabel(t.status)}</span></td><td>${t.url ? 'URL' : '文件'}</td><td>${formatParams(t.params || {})}</td><td>${t.duration_seconds ? t.duration_seconds.toFixed(1)+'s' : '-'}</td><td>${formatTime(t.created_at)}</td><td><button class="btn btn-sm btn-primary" onclick="viewTask('${t.task_id}')">查看</button> <button class="btn btn-sm btn-danger" onclick="deleteTask('${t.task_id}')">删除</button></td></tr>`).join('');
+  } catch(e) {
+    document.getElementById('taskBody').innerHTML = `<tr><td colspan="7" style="color:red">${escapeHtml(e.message)}</td></tr>`;
   }
 }
-initPage('文件转写');
+
+async function viewTask(taskId) {
+  currentTaskId = taskId;
+  document.getElementById('jobDetailCard').style.display = 'block';
+  document.getElementById('jobDetailId').textContent = taskId;
+  await refreshTaskDetail();
+  if (taskPoller) clearInterval(taskPoller);
+  taskPoller = setInterval(refreshTaskDetail, 3000);
+}
+
+async function refreshTaskDetail() {
+  if (!currentTaskId) return;
+  const task = await FunASRApi.getTask(currentTaskId);
+  document.getElementById('jobRaw').textContent = JSON.stringify(task, null, 2);
+  if (task.status === 'completed' && task.result) {
+    const normalized = normalizeResult(task.result);
+    document.getElementById('jobText').textContent = normalized.text;
+    renderTimeline('jobTimeline', normalized.timeline);
+    document.getElementById('jobMeta').innerHTML = [`状态: ${statusLabel(task.status)}`, `参数: ${formatParams(task.params || {})}`].map(m => `<span>${escapeHtml(m)}</span>`).join('');
+    if (taskPoller) { clearInterval(taskPoller); taskPoller = null; loadTasks(); }
+  } else if (task.status === 'failed') {
+    document.getElementById('jobText').textContent = task.error || '任务失败';
+    document.getElementById('jobMeta').innerHTML = '<span>失败</span>';
+    if (taskPoller) { clearInterval(taskPoller); taskPoller = null; loadTasks(); }
+  } else {
+    document.getElementById('jobText').textContent = `${statusLabel(task.status)}...`;
+    document.getElementById('jobMeta').innerHTML = `<span>${statusLabel(task.status)}</span>`;
+  }
+}
+
+async function deleteTask(taskId) {
+  if (!confirm(`删除任务 ${taskId}?`)) return;
+  await FunASRApi.deleteTask(taskId);
+  if (currentTaskId === taskId) document.getElementById('jobDetailCard').style.display = 'none';
+  loadTasks();
+}
+
+function formatParams(params) {
+  const parts = [];
+  if (params.language && params.language !== 'auto') parts.push(`语言:${params.language}`);
+  if (params.diarization) parts.push('说话人');
+  if (params.speaker_match) parts.push('声纹匹配');
+  if (params.speaker_group) parts.push(`组:${params.speaker_group}`);
+  if (params.emotion) parts.push('情感');
+  if (params.events) parts.push('事件');
+  if (params.punctuation === false) parts.push('无标点');
+  if (params.words) parts.push('词级');
+  if (params.raw) parts.push('raw');
+  if (params.response_format && params.response_format !== 'json') parts.push(params.response_format);
+  return parts.length ? parts.join(' / ') : '默认';
+}
+
+function realtimeOptions() {
+  const speakerGroup = document.getElementById('rtSpeakerGroup').value.trim();
+  const features = readFeatures('rt', speakerGroup);
+  return {
+    mode: document.getElementById('rtMode').value,
+    language: document.getElementById('rtLanguage').value,
+    hotwords: document.getElementById('rtHotwords').value,
+    speakerGroup,
+    diarization: features.diarization,
+    speakerMatch: features.speaker_match,
+    emotion: features.emotion,
+    events: features.events,
+    punctuation: features.punctuation,
+    fallback: 'auto',
+  };
+}
+
+function toggleRecord() { rtRecording ? stopRecord() : startRecord(); }
+
+async function startRecord() {
+  const btn = document.getElementById('recordBtn');
+  const hint = document.getElementById('micHint');
+  hint.style.display = 'none';
+  btn.disabled = true;
+  document.getElementById('rtStatus').textContent = '正在连接...';
+  try {
+    ws = new FunASRWebSocket(handleRealtimeMessage, handleRealtimeState);
+    await ws.connect(realtimeOptions());
+    recorder = new PCMRecorder(data => ws?.sendAudio(data));
+    await recorder.start();
+    rtRecording = true;
+    rtStartAt = Date.now();
+    btn.disabled = false;
+    btn.classList.add('recording');
+    btn.textContent = '⏹';
+    document.getElementById('recordMeter').classList.add('active');
+    document.getElementById('partialText').textContent = '请开始说话，实时文字会逐字更新。';
+    document.getElementById('currentStatus').textContent = '正在听';
+    document.getElementById('rtStatus').textContent = '录音中';
+  } catch(e) {
+    cleanupRealtime();
+    hint.textContent = e.message;
+    hint.style.display = 'block';
+    toast(e.message, 'error', 5000);
+  }
+}
+
+function stopRecord() {
+  document.getElementById('rtStatus').textContent = '正在收尾...';
+  recorder?.stop();
+  recorder = null;
+  ws?.stop();
+  setTimeout(() => ws?.close(), 2000);
+  cleanupRealtime(false);
+}
+
+function cleanupRealtime(closeWs = true) {
+  recorder?.stop();
+  recorder = null;
+  if (closeWs) ws?.close();
+  rtRecording = false;
+  const btn = document.getElementById('recordBtn');
+  btn.classList.remove('recording');
+  btn.disabled = false;
+  btn.textContent = '🎤';
+  document.getElementById('recordMeter').classList.remove('active');
+}
+
+function handleRealtimeMessage(data) {
+  document.getElementById('rtRaw').textContent = JSON.stringify(data, null, 2);
+  if (data.type === 'error') return toast(data.message || 'WebSocket 错误', 'error', 5000);
+  if (data.type === 'session.started') {
+    document.getElementById('currentStatus').textContent = `会话已开始 · ${data.mode}`;
+    return;
+  }
+  if (data.type === 'transcript.delta' || data.mode === '2pass-online' || data.mode === 'online') {
+    document.getElementById('currentStatus').textContent = '当前发言';
+    document.getElementById('partialText').textContent = data.text || '正在听...';
+    return;
+  }
+  if (data.type === 'transcript.segment' || data.mode === '2pass-offline' || (data.mode === 'offline' && data.is_final)) {
+    const text = data.clean_text || data.text || '';
+    if (!text) return;
+    const speaker = data.sentences?.[0]?.speaker;
+    const spkId = speaker?.id ? parseInt(String(speaker.id).replace('speaker_', ''), 10) : undefined;
+    rtHistory.push({
+      text,
+      speaker: speaker?.name || speaker?.id || 'speaker',
+      spkColor: spkId !== undefined && !Number.isNaN(spkId) ? `spk-${spkId % 5}` : '',
+      elapsed: formatElapsed(Date.now() - rtStartAt),
+      meta: [data.emotion, Array.isArray(data.events) ? data.events.join(', ') : data.events].filter(Boolean).join(' · '),
+    });
+    document.getElementById('partialText').textContent = '';
+    document.getElementById('currentStatus').textContent = rtRecording ? '正在听下一句' : '已停止';
+    renderRealtimeHistory();
+  }
+}
+
+function handleRealtimeState(state) {
+  document.getElementById('rtStatus').textContent = state === 'connected' ? '已连接' : (state === 'disconnected' ? '已断开' : '连接错误');
+}
+
+function renderRealtimeHistory() {
+  document.getElementById('rtCount').textContent = `${rtHistory.length} 句`;
+  document.getElementById('finalText').innerHTML = rtHistory.map(item => `<div class="final-line"><span class="spk-label ${item.spkColor}">${escapeHtml(item.speaker)}</span><span>${escapeHtml(item.text)}</span></div>`).join('');
+  document.getElementById('rtHistory').innerHTML = rtHistory.slice().reverse().map(item => `<div class="meeting-item"><span class="meeting-time">${escapeHtml(item.elapsed)}</span><div><div><span class="spk-label ${item.spkColor}">${escapeHtml(item.speaker)}</span>${item.meta ? `<span class="meeting-meta">${escapeHtml(item.meta)}</span>` : ''}</div><div class="meeting-text">${escapeHtml(item.text)}</div></div></div>`).join('');
+}
+
+function clearRealtimeHistory() {
+  rtHistory = [];
+  document.getElementById('partialText').textContent = rtRecording ? '正在听...' : '点击麦克风后，当前发言会在这里实时滚动显示。';
+  document.getElementById('currentStatus').textContent = rtRecording ? '正在听' : '等待开始';
+  document.getElementById('rtRaw').textContent = '';
+  renderRealtimeHistory();
+}
+
+async function registerSpeaker() {
+  const file = document.getElementById('spkAudio').files[0];
+  const name = document.getElementById('spkName').value.trim();
+  const group = document.getElementById('spkGroup').value.trim() || undefined;
+  if (!name) return toast('请输入说话人名称', 'error');
+  if (!file) return toast('请选择参考音频', 'error');
+  try {
+    const res = await FunASRApi.registerSpeaker(file, name, group);
+    toast(`注册成功：${res.group_id}`, 'success', 6000);
+    loadGroups();
+  } catch(e) { toast('注册失败: '+e.message, 'error'); }
+}
+
+async function loadGroups() {
+  try {
+    const data = await FunASRApi.listSpeakerGroups();
+    const groups = data.groups || [];
+    const tbody = document.getElementById('groupsBody');
+    if (!groups.length) {
+      tbody.innerHTML = '<tr><td colspan="4" class="empty-state">暂无声纹组。</td></tr>';
+      return;
+    }
+    tbody.innerHTML = groups.map(g => `<tr><td class="mono">${escapeHtml(g.group_id)}</td><td>${g.speaker_count}</td><td>${(g.speakers || []).map(escapeHtml).join(', ')}</td><td><button class="btn btn-sm btn-primary" onclick="copyText(${jsArg(g.group_id)})">复制 ID</button> ${(g.speakers || []).map(s => `<button class="btn btn-sm btn-danger" onclick="deleteSpeaker(${jsArg(g.group_id)}, ${jsArg(s)})">删除 ${escapeHtml(s)}</button>`).join(' ')}</td></tr>`).join('');
+  } catch(e) {
+    document.getElementById('groupsBody').innerHTML = `<tr><td colspan="4" style="color:red">${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+async function deleteSpeaker(groupId, name) {
+  if (!confirm(`删除说话人 ${name}?`)) return;
+  await FunASRApi.deleteSpeaker(groupId, name);
+  loadGroups();
+}
+
+async function loadStatus() {
+  try {
+    const health = await FunASRApi.health();
+    document.getElementById('svcStatus').innerHTML = '<span class="badge badge-completed">运行中</span>';
+    document.getElementById('svcDevice').textContent = health.device || '-';
+    document.getElementById('svcModel').textContent = health.model || '-';
+    document.getElementById('svcLoaded').textContent = (health.models_loaded || []).join(', ') || '无';
+    document.getElementById('capabilitiesJson').textContent = JSON.stringify(health.capabilities || {}, null, 2);
+    document.title = `${health.model || 'FunASR'} · WebUI`;
+  } catch(e) {
+    document.getElementById('svcStatus').innerHTML = '<span class="badge badge-failed">连接失败</span>';
+    document.getElementById('capabilitiesJson').textContent = e.message;
+  }
+}
+
+function formatElapsed(ms) {
+  const total = Math.max(0, Math.floor(ms / 1000));
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+function escapeHtml(value) {
+  return String(value || '').replace(/[&<>"']/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+}
+function jsArg(value) {
+  return JSON.stringify(String(value || '')).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;');
+}
+
+renderStandardParams();
+setupDrop('stdDrop', 'stdFile', setStandardFile);
+setupDrop('oaDrop', 'oaFile', setOpenAIFile);
+loadStatus();
+loadTasks();
+setInterval(loadTasks, 30000);
+if (location.hash) switchTab(location.hash.replace('#', ''));
 </script>
 </body>
 </html>

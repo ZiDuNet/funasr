@@ -14,6 +14,7 @@ from typing import Optional
 import httpx
 
 from server.core.audio import convert_to_pcm, save_temp_upload
+from server.core.formatters import canonical_to_openai, to_srt, to_vtt
 from server.core.schemas import build_config
 from server.core.transcription import transcribe_pcm
 from server.models.config import MAX_TASKS, TASKS_DIR, AUDIO_DIR, DATA_TTL_DAYS
@@ -39,12 +40,17 @@ class TranscriptionTask:
     url: str = ""
     model: str = ""  # 由提交时注入 MODEL_NAME
     speaker_diarization: bool = False
+    speaker_match: bool = False
     speaker_group: str = ""
     emotion: bool = False
     events: bool = False
     punctuation: bool = True
     language: str = "auto"
     hotwords: str = ""
+    words: bool = False
+    raw: bool = False
+    fallback: str = "error"
+    response_format: str = "json"
     result: Optional[dict] = None
     error: str = ""
     completed_at: float = 0.0
@@ -59,10 +65,15 @@ class TranscriptionTask:
             "model": self.model,
             "params": {
                 "diarization": self.speaker_diarization,
+                "speaker_match": self.speaker_match,
                 "emotion": self.emotion,
                 "events": self.events,
                 "punctuation": self.punctuation,
                 "language": self.language,
+                "words": self.words,
+                "raw": self.raw,
+                "fallback": self.fallback,
+                "response_format": self.response_format,
             },
         }
         if self.speaker_group:
@@ -98,12 +109,17 @@ class TranscriptionTask:
             "url": self.url,
             "model": self.model,
             "speaker_diarization": self.speaker_diarization,
+            "speaker_match": self.speaker_match,
             "speaker_group": self.speaker_group,
             "emotion": self.emotion,
             "events": self.events,
             "punctuation": self.punctuation,
             "language": self.language,
             "hotwords": self.hotwords,
+            "words": self.words,
+            "raw": self.raw,
+            "fallback": self.fallback,
+            "response_format": self.response_format,
             "result": self.result,
             "error": self.error,
             "completed_at": self.completed_at,
@@ -127,18 +143,36 @@ class TranscriptionTask:
             url=data.get("url", ""),
             model=data.get("model", "sensevoice"),
             speaker_diarization=data.get("speaker_diarization", False),
+            speaker_match=data.get("speaker_match", bool(data.get("speaker_group", ""))),
             speaker_group=data.get("speaker_group", ""),
             emotion=data.get("emotion", False),
             events=data.get("events", False),
             punctuation=data.get("punctuation", True),
             language=data.get("language", "auto"),
             hotwords=data.get("hotwords", ""),
+            words=data.get("words", False),
+            raw=data.get("raw", False),
+            fallback=data.get("fallback", "error"),
+            response_format=data.get("response_format", "json"),
             result=data.get("result"),
             error=data.get("error", ""),
             completed_at=data.get("completed_at", 0.0),
             duration_seconds=data.get("duration_seconds", 0.0),
             audio_duration_seconds=data.get("audio_duration_seconds", 0.0),
         )
+
+
+def _task_result_for_format(result: dict, response_format: str) -> dict:
+    """Keep task query JSON stable while honoring requested output format."""
+    if response_format == "text":
+        return {"text": result.get("text", ""), "format": "text", "json": result}
+    if response_format == "srt":
+        return {"text": to_srt(result), "format": "srt", "json": result}
+    if response_format == "vtt":
+        return {"text": to_vtt(result), "format": "vtt", "json": result}
+    if response_format == "verbose_json":
+        return canonical_to_openai(result, verbose=True)
+    return result
 
 
 class TaskManager:
@@ -279,13 +313,21 @@ class TaskManager:
                 cfg = build_config(
                     language=task.language,
                     speaker_diarization=task.speaker_diarization,
+                    speaker_match=task.speaker_match,
                     speaker_group=task.speaker_group or None,
                     emotion=task.emotion,
                     events=task.events,
                     punctuation=task.punctuation,
                     hotwords=task.hotwords or None,
+                    words=task.words,
+                    raw=task.raw,
+                    fallback=task.fallback,
+                    response_format=task.response_format,
                 )
-                task.result = await transcribe_pcm(pcm_bytes, cfg, source="task")
+                task.result = _task_result_for_format(
+                    await transcribe_pcm(pcm_bytes, cfg, source="task"),
+                    task.response_format,
+                )
 
                 task.status = TaskStatus.COMPLETED
                 task.completed_at = time.time()

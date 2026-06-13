@@ -72,11 +72,11 @@
 | 🤖 **MCP 协议** | HTTP | `POST /mcp` | Claude Desktop / Cursor / Claude Code 直连 |
 | 📦 **异步任务** | HTTP | `POST /api/v1/transcription-jobs` | 长文件 / URL 远程转写，提交后轮询结果 |
 | 👥 **声纹管理** | HTTP | `/api/v1/speaker-groups` | 多租户声纹注册、匹配、删除 |
-| 🌐 **Gradio WebUI** | Browser | `http://host:17767/ui` | 中文浏览器界面（文件转写 / 任务 / 声纹 / 状态 / 接口说明） |
+| 🌐 **原生 WebUI** | Browser | `http://host:17767/` | 单页中文控制台（标准转写 / OpenAI 兼容 / 异步任务 / 实时流式 / 声纹 / 状态） |
 
 完整接口文档 → **[API.md](API.md)**　|　Swagger 交互文档 → `http://host:17767/docs`
 
-浏览器访问 `http://host:17767/` 会自动跳转到 Gradio WebUI。声纹管理页按“选择声纹组 → 注册说话人 → 选择已有说话人 → 转写时下拉选组”的流程组织，文件转写和异步任务会共用同一套声纹组下拉选项。上传控件显式支持 `wav/mp3/m4a/mp4/aac/flac/ogg/opus/webm/wma/amr` 等常见音频扩展名。
+浏览器访问 `http://host:17767/` 会打开原生单页 WebUI。不同类型接口通过页面内 Tab 切换，不再提供 Gradio，也不再使用 `/ui` 或 `/web` 页面入口。
 
 ---
 

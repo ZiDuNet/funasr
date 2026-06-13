@@ -11,7 +11,7 @@ cp .env.example .env
 docker compose up -d
 ```
 
-等模型下载完（`docker logs -f funasr` 看进度），打开 `http://localhost:17767`，会自动进入 Gradio WebUI。声纹管理在 WebUI 里是下拉式流程：先创建或选择声纹组，再注册说话人，之后文件转写和异步任务都可以直接下拉选择该声纹组。
+等模型下载完（`docker logs -f funasr` 看进度），打开 `http://localhost:17767/`，会进入原生单页 WebUI。标准转写、OpenAI 兼容、异步任务、实时流式、声纹管理和服务状态都在同一个页面用 Tab 切换。
 
 ---
 
@@ -97,8 +97,7 @@ MODEL=whisper-large-v3-turbo  # 多语言识别+翻译，809M
 
 | 端点 | 用途 |
 |------|------|
-| `http://localhost:17767` | 自动跳转 Gradio WebUI |
-| `http://localhost:17767/ui` | Gradio 中文管理界面 |
+| `http://localhost:17767/` | 原生单页 WebUI |
 | `http://localhost:17767/docs` | Swagger 交互文档 |
 | `POST /api/v1/transcriptions` | 标准同步转写 |
 | `POST /v1/audio/transcriptions` | OpenAI 兼容转写 |

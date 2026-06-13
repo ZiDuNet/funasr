@@ -14,7 +14,7 @@
 | 说话人 | `POST/GET /api/v1/speaker-groups/{group_id}/speakers` |
 | 能力查询 | `GET /api/v1/capabilities`, `GET /api/v1/models` |
 | OpenAI 兼容 | `POST /v1/audio/transcriptions`, `GET /v1/models` |
-| Gradio WebUI | `GET /ui` |
+| 原生 WebUI | `GET /` |
 
 ## 内部层次
 
@@ -41,7 +41,7 @@
    - `tasks.py`：异步任务接口，同样调用标准转写服务。
    - `speakers.py`：声纹组和说话人注册接口。
    - `websocket.py`：实时接口，最终片段返回标准结构。
-   - `gradio_ui.py`：Gradio 中文 WebUI。
+   - `web/index.html`：原生单页中文 WebUI。
 
 ## 标准结果
 

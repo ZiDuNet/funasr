@@ -67,7 +67,24 @@ class FunASRApi {
   static transcribe(file, params = {}) {
     const fd = new FormData(); fd.append('file', file);
     Object.entries(params).forEach(([k,v]) => { if (v!==undefined && v!==null && v!=='') fd.append(k, v); });
-    return this.request('/api/v1/transcriptions', { method:'POST', body:fd });
+    return this.requestForm('/api/v1/transcriptions', fd, params.response_format || 'json');
+  }
+
+  static async transcribeOpenAI(file, params = {}) {
+    const fd = new FormData(); fd.append('file', file);
+    Object.entries(params).forEach(([k,v]) => { if (v!==undefined && v!==null && v!=='') fd.append(k, v); });
+    return this.requestForm('/v1/audio/transcriptions', fd, params.response_format || 'json');
+  }
+
+  static async requestForm(path, formData, responseFormat = 'json') {
+    const token = getToken();
+    const headers = token ? { 'Authorization': `Bearer ${token}` } : undefined;
+    const resp = await fetch(`${API_BASE}${path}`, { method:'POST', body:formData, headers });
+    if (resp.status === 401) { toast('🔑 Token 无效或缺失，请点击导航栏 Token 按钮设置', 'error', 5000); }
+    if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${(await resp.text()).slice(0,200)}`);
+    const contentType = resp.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) return resp.json();
+    return { text: await resp.text(), response_format: responseFormat };
   }
 
   static submitTask(fileOrUrl, params = {}) {

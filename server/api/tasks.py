@@ -40,6 +40,10 @@ async def create_transcription_job(
     punctuation: bool | None = Form(default=None, description="标点恢复"),
     language: str | None = Form(default=None, description="语言提示"),
     hotwords: str | None = Form(default=None, description="热词 JSON"),
+    words: bool | None = Form(default=None, description="返回词级时间戳"),
+    raw: bool | None = Form(default=None, description="返回 FunASR 原始结果"),
+    fallback: str | None = Form(default=None, description="不支持能力处理方式: error/auto"),
+    response_format: str | None = Form(default=None, description="输出格式: json/verbose_json/text/srt/vtt"),
 ):
     """提交异步转写任务，适合长音频或远程 URL。"""
     tm = get_task_manager()
@@ -57,6 +61,10 @@ async def create_transcription_job(
             events=events,
             punctuation=punctuation,
             hotwords=hotwords,
+            words=words,
+            raw=raw,
+            fallback=fallback,
+            response_format=response_format,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -64,12 +72,17 @@ async def create_transcription_job(
     kwargs = dict(
         model=MODEL_NAME,
         speaker_diarization=cfg.features.diarization,
+        speaker_match=cfg.features.speaker_match,
         speaker_group=cfg.features.speaker_group,
         emotion=cfg.features.emotion,
         events=cfg.features.events,
         punctuation=cfg.features.punctuation,
         language=cfg.language,
         hotwords=cfg.hotwords,
+        words=cfg.features.words,
+        raw=cfg.features.raw,
+        fallback=cfg.fallback,
+        response_format=cfg.response_format,
     )
 
     if url:

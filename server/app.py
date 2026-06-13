@@ -6,7 +6,7 @@ from contextlib import AsyncExitStack, asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI
-from fastapi.responses import RedirectResponse
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
@@ -49,8 +49,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 静态文件（CSS/JS/HTML/图片）
-        if (path.startswith(("/ui", "/gradio_api", "/web/", "/css/", "/js/")) or path in {"/", "/web", "/webui"}
-                or path.endswith((".html", ".css", ".js", ".png", ".ico", ".svg"))):
+        if path.startswith(("/css/", "/js/")) or path == "/":
             return await call_next(request)
 
         # API 路由：从 Header 或查询参数获取 token
@@ -95,11 +94,6 @@ async def lifespan(app: FastAPI):
         task_manager = TaskManager()
         await task_manager.start()
         tasks_api.set_task_manager(task_manager)
-        try:
-            from server.api.gradio_ui import set_task_manager as set_gradio_task_manager
-            set_gradio_task_manager(task_manager)
-        except Exception as e:
-            logger.warning(f"Gradio 任务管理器注入失败: {e}")
         app.state.task_manager = task_manager
 
         logger.info("FunASR All-in-One 服务就绪！")
@@ -112,7 +106,7 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(
         title="FunASR All-in-One 统一语音识别服务",
-        description=f"统一语音识别 ({MODEL_NAME})：标准 API、OpenAI 兼容 API、实时流式、声纹组、MCP、Gradio WebUI",
+        description=f"统一语音识别 ({MODEL_NAME})：标准 API、OpenAI 兼容 API、实时流式、声纹组、MCP、原生 WebUI",
         version="1.0.0", lifespan=lifespan,
     )
 
@@ -146,43 +140,21 @@ def create_app() -> FastAPI:
         app.state.mcp_app = mcp_app
         app.mount("/mcp", mcp_app)
 
-    try:
-        import gradio as gr
-        from server.api.gradio_ui import build_gradio_app
-        gr.mount_gradio_app(app, build_gradio_app(), path="/ui")
-        logger.info("Gradio WebUI 已挂载: /ui")
-    except Exception as e:
-        logger.error(f"Gradio WebUI 挂载失败: {e}")
-
     web_dir = Path(__file__).resolve().parent.parent / "web"
     if web_dir.exists():
-        @app.get("/web", include_in_schema=False)
-        async def web_page():
-            return RedirectResponse(url="/web/index.html")
+        css_dir = web_dir / "css"
+        js_dir = web_dir / "js"
+        if css_dir.exists():
+            app.mount("/css", StaticFiles(directory=str(css_dir)), name="web-css")
+        if js_dir.exists():
+            app.mount("/js", StaticFiles(directory=str(js_dir)), name="web-js")
 
-        @app.get("/webui", include_in_schema=False)
-        async def webui_page():
-            return RedirectResponse(url="/web/index.html")
+        @app.get("/", include_in_schema=False)
+        async def root_webui():
+            return FileResponse(web_dir / "index.html")
 
-        @app.get("/index.html", include_in_schema=False)
-        async def index_html_page():
-            return RedirectResponse(url="/web/index.html")
-
-        app.mount("/web", StaticFiles(directory=str(web_dir), html=True), name="web")
-        logger.info("原生 WebUI 已挂载: /web")
+        logger.info("原生 WebUI 已挂载: /")
     else:
         logger.warning(f"原生 WebUI 目录不存在: {web_dir}")
-
-    @app.get("/realtime", include_in_schema=False)
-    async def realtime_page():
-        return RedirectResponse(url="/web/realtime.html")
-
-    @app.get("/realtime.html", include_in_schema=False)
-    async def realtime_html_page():
-        return RedirectResponse(url="/web/realtime.html")
-
-    @app.get("/", include_in_schema=False)
-    async def root():
-        return RedirectResponse(url="/web/index.html")
 
     return app

@@ -24,7 +24,7 @@ def main():
     logger.info(f"  声纹组:      http://{host}:{port}/api/v1/speaker-groups")
     logger.info(f"  实时转写:    ws://{host}:{port}/api/v1/realtime/transcriptions")
     logger.info(f"  MCP:         http://{host}:{port}/mcp")
-    logger.info(f"  Gradio UI:   http://{host}:{port}/ui")
+    logger.info(f"  WebUI:       http://{host}:{port}/")
     logger.info(f"  API 文档:    http://{host}:{port}/docs")
 
     app = create_app()
