@@ -22,7 +22,6 @@ FEATURES = {
     "events": "SenseVoice 音频事件标签",
     "punctuation": "标点恢复；可能由 ASR 模型内置或 ct-punc 提供",
     "hotwords": "热词增强",
-    "words": "词级时间戳",
     "raw": "原始 FunASR 输出",
     "streaming": "专用流式 pipeline 提供在线/离线/2pass 识别",
 }
@@ -39,7 +38,6 @@ _BASE = {
     "events": False,
     "punctuation": True,
     "hotwords": False,
-    "words": False,
     "raw": True,
     "streaming": ENABLE_STREAMING,
     "streaming_pipeline": "paraformer-large-online + fsmn-vad",

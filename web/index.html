@@ -450,7 +450,6 @@
             <label class="switch"><input type="checkbox" id="syncEvt"><span class="track"></span>事件识别</label>
             <label class="switch"><input type="checkbox" id="syncMatch"><span class="track"></span>注册声纹匹配</label>
             <label class="switch"><input type="checkbox" id="syncRaw"><span class="track"></span>原始输出</label>
-            <label class="switch"><input type="checkbox" id="syncWords"><span class="track"></span>词级时间戳</label>
           </div>
           <div class="form-row mt-12">
             <label>声纹组 <span class="hint">启用声纹匹配时使用</span></label>
@@ -533,8 +532,6 @@
             <select class="select" id="openaiGran">
               <option value="">默认</option>
               <option value="segment">片段级 (segment)</option>
-              <option value="word">词级 (word)</option>
-              <option value="segment,word">片段+词级</option>
             </select>
           </div>
           <div class="grid grid-2">
@@ -657,7 +654,6 @@ print(result.segments)
             <label class="switch"><input type="checkbox" id="asyncEvt"><span class="track"></span>事件识别</label>
             <label class="switch"><input type="checkbox" id="asyncMatch"><span class="track"></span>注册声纹匹配</label>
             <label class="switch"><input type="checkbox" id="asyncRaw"><span class="track"></span>原始输出</label>
-            <label class="switch"><input type="checkbox" id="asyncWords"><span class="track"></span>词级时间戳</label>
           </div>
           <div class="form-row mt-12">
             <label>声纹组</label>
@@ -1238,7 +1234,6 @@ async function loadCapabilities(h){
     ['hotwords','热词增强'],
     ['sentence_timestamps','句子时间戳'],
     ['paragraphs','段落归并'],
-    ['words','词级时间戳'],
     ['raw','原始 FunASR 输出'],
     ['streaming','流式识别'],
   ];
@@ -1307,7 +1302,6 @@ async function submitSync(){
   if($('syncEvt').checked) fd.append('events','true');
   if($('syncMatch').checked) fd.append('speaker_match','true');
   if($('syncRaw').checked) fd.append('raw','true');
-  if($('syncWords').checked) fd.append('words','true');
   const g = $('syncGroup').value.trim(); if(g) fd.append('speaker_group', g);
 
   const btn = $('syncSubmit');
@@ -1399,7 +1393,6 @@ async function submitAsync(){
   if($('asyncEvt').checked) fd.append('events','true');
   if($('asyncMatch').checked) fd.append('speaker_match','true');
   if($('asyncRaw').checked) fd.append('raw','true');
-  if($('asyncWords').checked) fd.append('words','true');
   const g = $('asyncGroup').value.trim(); if(g) fd.append('speaker_group', g);
 
   const btn = $('asyncSubmit');

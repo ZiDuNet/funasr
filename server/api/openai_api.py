@@ -116,8 +116,6 @@ async def transcribe_openai(
             fallback=fallback,
             response_format=response_format,
         )
-        if timestamp_granularities and "word" in timestamp_granularities:
-            cfg.features.words = True
         result = await _transcribe_upload(file, cfg)
         return response_for_format(
             result,
