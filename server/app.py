@@ -8,7 +8,6 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -48,8 +47,8 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
         if path in self.PUBLIC_PATHS:
             return await call_next(request)
 
-        # 静态文件（CSS/JS/HTML/图片）
-        if path.startswith(("/css/", "/js/")) or path == "/":
+        # 原生 WebUI 根页面
+        if path == "/":
             return await call_next(request)
 
         # API 路由：从 Header 或查询参数获取 token
@@ -142,13 +141,6 @@ def create_app() -> FastAPI:
 
     web_dir = Path(__file__).resolve().parent.parent / "web"
     if web_dir.exists():
-        css_dir = web_dir / "css"
-        js_dir = web_dir / "js"
-        if css_dir.exists():
-            app.mount("/css", StaticFiles(directory=str(css_dir)), name="web-css")
-        if js_dir.exists():
-            app.mount("/js", StaticFiles(directory=str(js_dir)), name="web-js")
-
         @app.get("/", include_in_schema=False)
         async def root_webui():
             return FileResponse(web_dir / "index.html")

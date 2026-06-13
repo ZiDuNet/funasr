@@ -69,6 +69,16 @@ WS_PROTOCOL_DOC = {
         "transcript.segment": "offline/2pass 的最终片段，VAD 断句后返回，可包含说话人、声纹、情感、事件、标点。",
         "error": "配置或推理错误。",
     },
+    "responses": {
+        "transcript.segment": {
+            "text": "原始模型文本，可能包含模型控制标签",
+            "clean_text": "清洗后的纯转写文本",
+            "paragraphs": "段落聚合视图，text 会和 sentences 文本重复但粒度不同",
+            "sentences": "最小时间轴单位；开启 diarization/speaker_match 后每句可包含 speaker.id/name/score/group_id",
+            "speaker_match": "声纹匹配诊断摘要；包含声纹组人数、匹配/未匹配数量、每个匿名说话人的原因和最高候选分数",
+            "features.warnings": "能力未生效或参数不足时的诊断提示，例如缺少 speaker_group",
+        },
+    },
     "modes": {
         "online": "只返回 transcript.delta，延迟低；不返回说话人、声纹、情感、事件、完整标点。",
         "offline": "VAD 断句后返回 transcript.segment；可返回增强字段，但没有实时中间文本。",
@@ -77,7 +87,7 @@ WS_PROTOCOL_DOC = {
     "speaker_consistency": (
         "说话人编号一致性只在单个 WebSocket 会话内维护。开启 diarization 后，服务端会用会话级 "
         "SpeakerTracker 尽量保持 speaker_0/speaker_1 跨多句一致；开启 speaker_match 并提供 "
-        "group_id 后，最终段会尝试匹配注册声纹并返回姓名和分数。"
+        "group_id 后，最终段会尝试匹配注册声纹并返回姓名、分数和 speaker_match 诊断摘要。"
     ),
 }
 
@@ -439,6 +449,8 @@ def register_ws_endpoint(app):
                                             mode_label = "2pass-offline" if "2pass" in state["mode"] else state["mode"]
                                             # ── 说话人处理 ──
                                             sentence_info = rec.get("sentence_info")
+                                            speaker_match_summary = None
+                                            feature_warnings = []
                                             if state.get("speaker_diarization") and sentence_info:
                                                 registry = ModelRegistry.get_instance()
 
@@ -454,7 +466,7 @@ def register_ws_endpoint(app):
                                                     for si in sentence_info:
                                                         if "spk" in si:
                                                             si["speaker_id"] = si["spk"]
-                                                    match_segments(
+                                                    speaker_match_summary = match_segments(
                                                         sentence_info, audio_in,
                                                         state["speaker_group"],
                                                         registry.get_aux("sv"),
@@ -462,6 +474,18 @@ def register_ws_endpoint(app):
                                                     # 清理临时字段
                                                     for si in sentence_info:
                                                         si.pop("speaker_id", None)
+                                                elif state.get("speaker_match"):
+                                                    feature_warnings.append({
+                                                        "code": "missing_speaker_group",
+                                                        "feature": "speaker_match",
+                                                        "message": "speaker_match 已开启，但未提供 speaker_group/group_id，已跳过声纹匹配。",
+                                                    })
+                                            elif state.get("speaker_match"):
+                                                feature_warnings.append({
+                                                    "code": "diarization_unavailable",
+                                                    "feature": "speaker_match",
+                                                    "message": "本段未返回可用于声纹匹配的 sentence_info/spk，已跳过声纹匹配。",
+                                                })
 
                                             canonical = _build_ws_canonical(
                                                 rec,
@@ -511,10 +535,12 @@ def register_ws_endpoint(app):
                                                             else []
                                                         ),
                                                     ],
-                                                    "warnings": [],
+                                                    "warnings": feature_warnings,
                                                 },
                                                 **canonical,
                                             }
+                                            if speaker_match_summary is not None:
+                                                resp["speaker_match"] = speaker_match_summary
                                             if state.get("raw"):
                                                 resp["raw"] = rec
                                             await websocket.send_json(resp)
