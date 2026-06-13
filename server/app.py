@@ -3,10 +3,12 @@
 import logging
 import os
 from contextlib import AsyncExitStack, asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -47,7 +49,7 @@ class TokenAuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # 静态文件（CSS/JS/HTML/图片）
-        if (path.startswith(("/ui", "/gradio_api", "/css/", "/js/")) or path == "/"
+        if (path.startswith(("/ui", "/gradio_api", "/web/", "/css/", "/js/")) or path == "/"
                 or path.endswith((".html", ".css", ".js", ".png", ".ico", ".svg"))):
             return await call_next(request)
 
@@ -151,6 +153,21 @@ def create_app() -> FastAPI:
         logger.info("Gradio WebUI 已挂载: /ui")
     except Exception as e:
         logger.error(f"Gradio WebUI 挂载失败: {e}")
+
+    web_dir = Path(__file__).resolve().parent.parent / "web"
+    if web_dir.exists():
+        app.mount("/web", StaticFiles(directory=str(web_dir), html=True), name="web")
+        logger.info("原生 WebUI 已挂载: /web")
+    else:
+        logger.warning(f"原生 WebUI 目录不存在: {web_dir}")
+
+    @app.get("/realtime", include_in_schema=False)
+    async def realtime_page():
+        return RedirectResponse(url="/web/realtime.html")
+
+    @app.get("/realtime.html", include_in_schema=False)
+    async def realtime_html_page():
+        return RedirectResponse(url="/web/realtime.html")
 
     @app.get("/", include_in_schema=False)
     async def root():

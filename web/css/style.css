@@ -187,6 +187,72 @@ tr:hover td { background: #fafbfc; }
 .record-btn:hover { transform: scale(1.05); }
 .record-btn.recording { background: var(--danger); color: #fff; animation: pulse 1.2s infinite; }
 @keyframes pulse { 0%,100% { box-shadow: 0 0 0 0 rgba(230,57,70,0.4); } 50% { box-shadow: 0 0 0 20px rgba(230,57,70,0); } }
+.record-btn:disabled { opacity: 0.55; cursor: wait; transform: none; }
+.record-meter {
+  height: 26px; display: flex; gap: 5px; align-items: center; justify-content: center;
+  opacity: 0; transition: opacity .2s ease; margin-top: 8px;
+}
+.record-meter.active { opacity: 1; }
+.record-meter span {
+  width: 5px; height: 8px; border-radius: 999px; background: var(--success);
+  animation: meter 1s ease-in-out infinite; transform-origin: center bottom;
+}
+.record-meter span:nth-child(2) { animation-delay: .12s; }
+.record-meter span:nth-child(3) { animation-delay: .24s; }
+.record-meter span:nth-child(4) { animation-delay: .36s; }
+.record-meter span:nth-child(5) { animation-delay: .48s; }
+@keyframes meter {
+  0%, 100% { height: 8px; opacity: .5; }
+  50% { height: 24px; opacity: 1; }
+}
+
+.meeting-live {
+  min-height: 280px; background: #0f172a; border-radius: 8px; padding: 18px;
+  color: #e2e8f0; border: 1px solid #1e293b; overflow: hidden;
+}
+.meeting-live .speaking-dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--success); animation: pulse-dot 1s ease-in-out infinite;
+}
+.meeting-live .spk-label,
+.meeting-history .spk-label {
+  font-size: 12px; font-weight: 700; padding: 2px 8px; border-radius: 4px;
+  white-space: nowrap; min-width: 70px; text-align: center; display: inline-block;
+}
+.current-speaker {
+  display: flex; align-items: center; gap: 8px; color: #93c5fd;
+  font-size: 13px; font-weight: 700; margin-bottom: 10px;
+}
+.current-text {
+  min-height: 68px; font-size: 22px; line-height: 1.55; color: #fff;
+  padding-bottom: 16px; border-bottom: 1px solid rgba(148,163,184,.2);
+}
+.current-text:empty::after {
+  content: '正在听...'; color: #64748b;
+}
+.final-text {
+  max-height: 340px; overflow-y: auto; padding-top: 12px; font-size: 15px;
+}
+.final-line {
+  display: flex; gap: 10px; align-items: baseline; padding: 8px 0;
+  border-bottom: 1px solid rgba(148,163,184,.12); animation: fadeIn .22s ease-out;
+}
+.final-line .spk-label { flex-shrink: 0; }
+.meeting-history {
+  max-height: 320px; overflow-y: auto; font-size: 14px;
+}
+.meeting-item {
+  display: grid; grid-template-columns: 54px 1fr; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.meeting-time {
+  color: var(--text-secondary); font-family: 'SF Mono','Fira Code','Consolas',monospace;
+  font-size: 12px; padding-top: 2px;
+}
+.meeting-meta {
+  color: var(--text-secondary); font-size: 12px; margin-left: 8px;
+}
+.meeting-text { margin-top: 6px; line-height: 1.7; }
 
 .live-text {
   font-size: 15px; line-height: 1.8; min-height: 200px; padding: 16px;

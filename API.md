@@ -29,6 +29,7 @@ http://{host}:17767/ui
 WebUI 全中文，包含：
 
 - 文件转写
+- 原生 WebSocket 实时录音：`/realtime`
 - 异步任务
 - 声纹组管理
 - 服务状态
@@ -386,7 +387,7 @@ ws://localhost:17767/api/v1/realtime/transcriptions?token=your-token
   "mode": "2pass",
   "audio_fs": 16000,
   "wav_format": "pcm",
-  "chunk_size": [5, 10, 5],
+  "chunk_size": [0, 10, 5],
   "chunk_interval": 10,
   "wav_name": "microphone",
   "itn": true,

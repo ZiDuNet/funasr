@@ -18,6 +18,69 @@ from server.models.registry import ModelRegistry
 logger = logging.getLogger(__name__)
 _API_TOKEN = os.environ.get("API_TOKEN", "").strip()
 
+WS_PROTOCOL_DOC = {
+    "websocket": {
+        "url": "/api/v1/realtime/transcriptions",
+        "auth": "启用 API_TOKEN 时，在查询参数追加 ?token=your-token",
+        "audio_frame": "binary 16 kHz / mono / signed int16 little-endian PCM",
+        "flow": [
+            "建立 WebSocket 连接",
+            "发送 session.start JSON 配置帧",
+            "持续发送 PCM 二进制音频帧",
+            "停止录音时发送 audio.end JSON 控制帧",
+            "服务端返回 session.started、transcript.delta、transcript.segment 或 error",
+        ],
+    },
+    "browser_ui": {
+        "path": "/realtime",
+        "note": "原生浏览器页面直连 WebSocket，不走 /ui/gradio_api/upload。",
+    },
+    "session_start_example": {
+        "type": "session.start",
+        "mode": "2pass",
+        "audio_fs": 16000,
+        "wav_format": "pcm",
+        "chunk_size": [0, 10, 5],
+        "chunk_interval": 10,
+        "encoder_chunk_look_back": 4,
+        "decoder_chunk_look_back": 1,
+        "itn": True,
+        "features": {
+            "diarization": True,
+            "speaker_match": {
+                "enabled": True,
+                "group_id": "grp_xxx",
+            },
+            "emotion": True,
+            "events": True,
+            "punctuation": True,
+            "raw": False,
+        },
+        "options": {
+            "language": "auto",
+            "hotwords": {"FunASR": 20},
+        },
+        "fallback": "auto",
+    },
+    "stop_example": {"type": "audio.end"},
+    "events": {
+        "session.started": "配置已生效，返回本次会话模式、音频格式和能力开关。",
+        "transcript.delta": "online/2pass 的实时中间文本，用于一边说一边出字。",
+        "transcript.segment": "offline/2pass 的最终片段，VAD 断句后返回，可包含说话人、声纹、情感、事件、标点。",
+        "error": "配置或推理错误。",
+    },
+    "modes": {
+        "online": "只返回 transcript.delta，延迟低；不返回说话人、声纹、情感、事件、完整标点。",
+        "offline": "VAD 断句后返回 transcript.segment；可返回增强字段，但没有实时中间文本。",
+        "2pass": "先返回 transcript.delta，断句后返回 transcript.segment 修正结果；推荐会议录音使用。",
+    },
+    "speaker_consistency": (
+        "说话人编号一致性只在单个 WebSocket 会话内维护。开启 diarization 后，服务端会用会话级 "
+        "SpeakerTracker 尽量保持 speaker_0/speaker_1 跨多句一致；开启 speaker_match 并提供 "
+        "group_id 后，最终段会尝试匹配注册声纹并返回姓名和分数。"
+    ),
+}
+
 
 def _parse_chunk_size(value) -> list[int]:
     if isinstance(value, str):
@@ -181,6 +244,28 @@ def _build_ws_canonical(rec: dict, sentence_info: list | None,
 
 
 def register_ws_endpoint(app):
+    @app.get(
+        "/api/v1/realtime/transcriptions/protocol",
+        tags=["Realtime WebSocket"],
+        summary="实时转写 WebSocket 协议说明",
+        description=(
+            "Swagger/OpenAPI 不能直接描述 WebSocket 操作；本端点用于在 /docs 中展示 "
+            "`/api/v1/realtime/transcriptions` 的请求流程、参数和返回事件。"
+        ),
+        responses={
+            200: {
+                "description": "WebSocket 协议说明",
+                "content": {
+                    "application/json": {
+                        "example": WS_PROTOCOL_DOC,
+                    }
+                },
+            }
+        },
+    )
+    async def ws_protocol_doc():
+        return WS_PROTOCOL_DOC
+
     @app.websocket("/api/v1/realtime/transcriptions")
     async def ws_endpoint(websocket: WebSocket):
         if _API_TOKEN and websocket.query_params.get("token", "") != _API_TOKEN:

@@ -9,9 +9,7 @@ import threading
 import time
 from typing import Any
 
-import numpy as np
 import gradio as gr
-from scipy.signal import resample_poly
 
 from server.core.audio import convert_to_pcm, save_temp_upload
 from server.core.schemas import build_config
@@ -44,174 +42,6 @@ SUPPORTED_AUDIO_FILE_TYPES = [
     ".wma",
     ".amr",
 ]
-
-_REALTIME_WS_URL = (
-    f"ws://{os.environ.get('FUNASR_HOST', '127.0.0.1')}:"
-    f"{os.environ.get('FUNASR_PORT', '17767')}/api/v1/realtime/transcriptions"
-)
-_API_TOKEN = os.environ.get("API_TOKEN", "").strip()
-
-
-def numpy_to_pcm16k(sample_rate: int, data: np.ndarray) -> bytes:
-    """Gradio gr.Audio(type='numpy') 拿到 (sr, float32[]) → 16kHz 单声道 int16 PCM bytes。
-
-    Gradio 给的是 float32（-1~1），采样率取决于设备（常见 48k/44.1k）。
-    WS 服务期望 16kHz 16bit 单声道 PCM（每 ms 32 字节）。
-    """
-    if data is None or len(data) == 0:
-        return b""
-    data = np.asarray(data, dtype=np.float32).flatten()
-    if sample_rate != 16000:
-        # scipy 重采样（整数比插值，抗混叠）
-        from math import gcd
-        g = gcd(int(sample_rate), 16000)
-        up = 16000 // g
-        down = int(sample_rate) // g
-        data = resample_poly(data, up, down)
-    # float32 → int16
-    clipped = np.clip(data, -1.0, 1.0)
-    int16 = (clipped * 32767).astype(np.int16)
-    return int16.tobytes()
-
-
-class RealtimeSession:
-    """每个 Gradio 会话独立持有的 WS 代理，前端 mic → 本类 → 本地 WS 服务。
-
-    Gradio 的 streaming handler 是 async 的，能直接 await websockets。
-    _reader 协程在 handler 之间持续运行，把 WS 返回的中间/最终结果累积到 snapshot。
-    """
-
-    def __init__(self):
-        self.ws = None
-        self.reader_task: asyncio.Task | None = None
-        self.partial = ""
-        self.finals: list[dict] = []
-        self.error = ""
-        self.last_event: dict = {}
-        self.last_render = ""
-        self.last_event_json = "{}"
-        self.sent_samples = 0
-        self.pending_pcm = b""
-        self.frame_bytes = 1920
-
-    async def connect(self, *, mode: str, hotwords: str,
-                      spk: bool, speaker_match: bool, speaker_group: str,
-                      emo: bool, events: bool, punctuation: bool) -> None:
-        import websockets
-        url = _REALTIME_WS_URL
-        if _API_TOKEN:
-            url = f"{url}?token={_API_TOKEN}"
-        self.ws = await websockets.connect(url, subprotocols=["binary"], max_size=None)
-        cfg = {
-            "type": "session.start",
-            "mode": mode,
-            "chunk_size": [0, 10, 5],
-            "chunk_interval": 10,
-            "wav_name": "gradio",
-            "wav_format": "pcm",
-            "audio_fs": 16000,
-            "itn": True,
-            "features": {
-                "diarization": spk,
-                "speaker_match": {
-                    "enabled": speaker_match,
-                    "group_id": speaker_group or "",
-                },
-                "emotion": emo,
-                "events": events,
-                "punctuation": punctuation,
-            },
-            "options": {
-                "language": "auto",
-            },
-            "fallback": "auto",
-        }
-        if hotwords:
-            cfg["options"]["hotwords"] = hotwords
-        self.frame_bytes = int(16000 * 2 * (cfg["chunk_size"][1] * 60 / cfg["chunk_interval"]) / 1000)
-        await self.ws.send(json.dumps(cfg))
-        self.reader_task = asyncio.create_task(self._reader())
-
-    async def _reader(self) -> None:
-        try:
-            async for raw in self.ws:
-                try:
-                    data = json.loads(raw)
-                except json.JSONDecodeError:
-                    continue
-                self.last_event = data
-                mode = data.get("mode", "")
-                if mode in ("2pass-online", "online"):
-                    self.partial = data.get("text", "")
-                elif mode in ("2pass-offline", "offline") and data.get("is_final"):
-                    text = data.get("clean_text") or data.get("text", "")
-                    if text:
-                        speaker = None
-                        sentences = data.get("sentences") or []
-                        if sentences:
-                            speaker = sentences[0].get("speaker")
-                        self.finals.append({
-                            "text": text,
-                            "speaker": speaker,
-                            "emotion": data.get("emotion"),
-                            "events": data.get("events"),
-                        })
-                    self.partial = ""
-        except asyncio.CancelledError:
-            pass
-        except Exception as exc:
-            self.error = str(exc)
-
-    async def send_pcm(self, pcm_bytes: bytes) -> None:
-        if self.ws and pcm_bytes:
-            await self.ws.send(pcm_bytes)
-
-    async def send_audio_array(self, sample_rate: int, data: np.ndarray) -> None:
-        """Send only new audio, split into FunASR-style 60ms PCM frames."""
-        if data is None:
-            return
-        data = np.asarray(data, dtype=np.float32).flatten()
-        if len(data) <= self.sent_samples:
-            return
-        new_data = data[self.sent_samples:]
-        self.sent_samples = len(data)
-        self.pending_pcm += numpy_to_pcm16k(sample_rate, new_data)
-        while len(self.pending_pcm) >= self.frame_bytes:
-            frame = self.pending_pcm[:self.frame_bytes]
-            self.pending_pcm = self.pending_pcm[self.frame_bytes:]
-            await self.send_pcm(frame)
-
-    async def stop(self) -> None:
-        if not self.ws:
-            return
-        try:
-            if self.pending_pcm:
-                await self.send_pcm(self.pending_pcm)
-                self.pending_pcm = b""
-            await self.ws.send(json.dumps({"type": "audio.end"}))
-            # 给服务端时间回最后一帧离线结果
-            await asyncio.sleep(1.5)
-        except Exception:
-            pass
-        if self.reader_task:
-            self.reader_task.cancel()
-            try:
-                await self.reader_task
-            except asyncio.CancelledError:
-                pass
-        try:
-            await self.ws.close()
-        except Exception:
-            pass
-        self.ws = None
-
-    def snapshot(self) -> dict:
-        return {
-            "partial": self.partial,
-            "finals": list(self.finals),
-            "error": self.error,
-            "last_event": self.last_event,
-        }
 
 
 def set_task_manager(task_manager: TaskManager | None) -> None:
@@ -630,84 +460,6 @@ def delete_ui_speaker(group_id: str | None, name: str | None):
     )
 
 
-def _format_realtime(snapshot: dict) -> str:
-    """把 RealtimeSession.snapshot() 渲染成可读文本。"""
-    if not snapshot:
-        return "等待录音..."
-    parts = []
-    finals = snapshot.get("finals") or []
-    for idx, item in enumerate(finals, start=1):
-        speaker = item.get("speaker") or {}
-        spk_label = ""
-        if isinstance(speaker, dict):
-            name = speaker.get("name") or speaker.get("id")
-            if name:
-                spk_label = f"[{name}] "
-        elif speaker:
-            spk_label = f"[{speaker}] "
-        emo = f" <{item.get('emotion')}>" if item.get("emotion") else ""
-        events = f" 事件:{','.join(item.get('events') or [])}" if item.get("events") else ""
-        parts.append(f"{idx}. {spk_label}{item.get('text', '')}{emo}{events}")
-    partial = snapshot.get("partial") or ""
-    partial_line = f"\n\n… {partial}" if partial else ""
-    err = snapshot.get("error") or ""
-    err_line = f"\n\n⚠️ {err}" if err else ""
-    return "\n".join(parts) + partial_line + err_line if parts else (partial_line.lstrip() or err_line or "等待录音...")
-
-
-def _realtime_outputs(session: RealtimeSession, status: str, *, force: bool = False):
-    snapshot = session.snapshot()
-    rendered = _format_realtime(snapshot)
-    event_json = _json_dumps(snapshot.get("last_event") or {})
-
-    output = rendered if force or rendered != session.last_render else gr.skip()
-    raw = event_json if force or event_json != session.last_event_json else gr.skip()
-    session.last_render = rendered
-    session.last_event_json = event_json
-    return output, session, status, raw
-
-
-async def realtime_stream(audio, session: RealtimeSession, mode, hotwords,
-                          spk, speaker_match, speaker_group,
-                          emo, events, punctuation):
-    """gr.Audio(streaming=True) 的 handler。
-
-    Gradio 在录音开始后按 stream_every 间隔调用：
-      - 第一次进入时 session.ws 还没建立 → 建立连接并发送配置帧
-      - 每次进入拿到增量音频 → 转 PCM → 发 WS → 返回当前累积结果
-      - 用户停止录音 → audio 为 None → 关闭 WS，返回最终结果
-    """
-    if audio is None:
-        if session.ws:
-            await session.stop()
-        return _realtime_outputs(session, "已停止", force=True)
-
-    sample_rate, data = audio
-    try:
-        if session.ws is None:
-            await session.connect(
-                mode=mode or "2pass",
-                hotwords=hotwords or "",
-                spk=bool(spk),
-                speaker_match=bool(speaker_match),
-                speaker_group=speaker_group or "",
-                emo=bool(emo),
-                events=bool(events),
-                punctuation=bool(punctuation),
-            )
-        await session.send_audio_array(int(sample_rate or 16000), data)
-    except Exception as exc:
-        session.error = str(exc)
-
-    status = "录音中…" if session.ws and not session.error else f"错误：{session.error}"
-    return _realtime_outputs(session, status)
-
-
-def realtime_reset():
-    """重置按钮：返回新 session + 清空显示。"""
-    return "", RealtimeSession(), "已清空，可重新录音", "{}"
-
-
 def service_status():
     registry = ModelRegistry.get_instance()
     data = {
@@ -787,7 +539,7 @@ ws://host:17767/api/v1/realtime/transcriptions?token=your-token
   "mode": "2pass",
   "audio_fs": 16000,
   "wav_format": "pcm",
-  "chunk_size": [5, 10, 5],
+  "chunk_size": [0, 10, 5],
   "chunk_interval": 10,
   "itn": true,
   "features": {
@@ -1108,7 +860,14 @@ def build_gradio_app(task_manager: TaskManager | None = None):
                 """
 ### 实时录音转写（流式）
 
-浏览器麦克风实时识别，复用 `/api/v1/realtime/transcriptions` WebSocket。
+实时录音已改为原生浏览器页面，不再使用 Gradio 的 `gr.Audio(streaming=True)`。
+请打开：
+
+[/realtime](/realtime)
+
+原生页面会直接连接 `/api/v1/realtime/transcriptions` WebSocket，音频帧直接以
+`16 kHz / mono / signed int16 little-endian PCM` 二进制发送，不经过
+`/ui/gradio_api/upload` 或 `/ui/gradio_api/stream`。
 
 **麦克风限制**：浏览器安全策略要求 HTTPS 或 `localhost` 访问才能开麦克风。
 局域网（如 `http://192.168.x.x:17767/ui`）会被浏览器禁用麦克风，需用 `localhost` 或配 HTTPS。
@@ -1123,69 +882,7 @@ def build_gradio_app(task_manager: TaskManager | None = None):
 `offline` 或 `2pass` 的最终段 `transcript.segment` 中返回。
 """
             )
-            rt_session = gr.State(value=RealtimeSession())
-            with gr.Row():
-                with gr.Column(scale=1):
-                    rt_mode = gr.Radio(
-                        ["2pass", "online", "offline"],
-                        value="2pass",
-                        label="识别模式",
-                    )
-                    rt_hotwords = gr.Textbox(
-                        label="热词 JSON",
-                        placeholder='{"FunASR": 20}',
-                    )
-                    rt_spk = gr.Checkbox(label="说话人分离", value=False)
-                    rt_speaker_match = gr.Checkbox(label="声纹匹配", value=False)
-                    rt_speaker_group = gr.Dropdown(
-                        choices=initial_group_choices,
-                        value=initial_group,
-                        label="声纹组",
-                        interactive=True,
-                    )
-                    rt_emo = gr.Checkbox(label="情感识别", value=False)
-                    rt_events = gr.Checkbox(label="事件检测", value=False)
-                    rt_punctuation = gr.Checkbox(label="标点恢复", value=True)
-                with gr.Column(scale=2):
-                    rt_mic = gr.Audio(
-                        sources=["microphone"],
-                        streaming=True,
-                        type="numpy",
-                        label="麦克风",
-                        waveform_options=gr.WaveformOptions(show_recording_waveform=True),
-                    )
-                    rt_status = gr.Textbox(label="连接状态", value="等待录音", interactive=False)
-                    rt_clear_btn = gr.Button("清空结果")
-
-            rt_output = gr.Textbox(
-                label="累计识别结果（最终段持续累加，末尾为实时中间结果）",
-                lines=15,
-                value="等待录音...",
-            )
-            rt_raw = gr.Code(label="最近一帧 JSON", language="json")
-
-            # Gradio 4+ streaming: handler 每次 chunk 触发
-            gr.on(
-                rt_mic.stream,
-                fn=realtime_stream,
-                inputs=[
-                    rt_mic,
-                    rt_session,
-                    rt_mode,
-                    rt_hotwords,
-                    rt_spk,
-                    rt_speaker_match,
-                    rt_speaker_group,
-                    rt_emo,
-                    rt_events,
-                    rt_punctuation,
-                ],
-                outputs=[rt_output, rt_session, rt_status, rt_raw],
-            )
-            rt_clear_btn.click(
-                realtime_reset,
-                outputs=[rt_output, rt_session, rt_status, rt_raw],
-            )
+            gr.Button("打开原生 WebSocket 实时录音页", link="/realtime", variant="primary")
 
         with gr.Tab("服务状态"):
             status_btn = gr.Button("刷新状态", variant="primary")
