@@ -21,6 +21,7 @@ import time
 import json
 import uuid
 import shutil
+import subprocess
 import tempfile
 import logging
 from datetime import datetime
@@ -30,7 +31,7 @@ import numpy as np
 import soundfile as sf
 import uvicorn
 from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request, Depends, Header
-from fastapi.responses import JSONResponse, HTMLResponse, FileResponse
+from fastapi.responses import JSONResponse, HTMLResponse, FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -63,6 +64,7 @@ for d in (DATA_DIR, AUDIO_DIR, RECORD_DIR, RESULT_DIR, STATIC_DIR):
 
 JSON_EXT = (".json", ".jsonl")
 AUDIO_EXTS = (".wav", ".mp3", ".flac", ".m4a", ".ogg", ".webm", ".amr", ".aac", ".opus", ".wma")
+VIDEO_EXTS = (".mp4", ".mov", ".avi", ".mkv", ".flv", ".wmv", ".ts", ".mpg", ".mpeg", ".3gp", ".m4v")
 
 BROWSER_HTML = """<!DOCTYPE html>
 <html lang="zh">
@@ -343,10 +345,11 @@ async function loadRecords() {
       html += '<td>'+spk+'</td>';
       html += '<td>'+r.created+'</td>';
       html += '<td class="actions">';
-      html += '<button onclick="viewRecord(\''+r.id+'\')">查看</button>';
-      html += '<button onclick="downloadFile(\''+r.id+'\',\'audio\')">下载原文件</button>';
-      html += '<button onclick="downloadFile(\''+r.id+'\',\'result\')">下载结果</button>';
-      html += '<button class="danger" onclick="deleteRecord(\''+r.id+'\')">删除</button>';
+      html += '<button onclick="viewRecord(\\''+r.id+'\\')">查看</button>';
+      html += '<button onclick="downloadFile(\\''+r.id+'\\',\\'audio\\')">下载原文件</button>';
+      html += '<button onclick="downloadFile(\\''+r.id+'\\',\\'result\\')">下载结果</button>';
+      html += '<button onclick="downloadFile(\\''+r.id+'\\',\\'md\\')">导出MD</button>';
+      html += '<button class="danger" onclick="deleteRecord(\\''+r.id+'\\')">删除</button>';
       html += '</td></tr>';
     });
     body.innerHTML = html;
@@ -382,7 +385,7 @@ async function downloadFile(id, type) {
   const blob = await resp.blob();
   const disp = resp.headers.get('content-disposition') || '';
   const nameMatch = disp.match(/filename=([^;]+)/);
-  const filename = nameMatch ? nameMatch[1] : (type === 'audio' ? id+'.wav' : id+'.json');
+  const filename = nameMatch ? nameMatch[1] : (type === 'audio' ? id+'.wav' : type === 'md' ? id+'.md' : id+'.json');
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
   a.download = filename;
@@ -523,10 +526,11 @@ async def index():
 
 @app.get("/health")
 async def health():
+    loaded = sorted({k.replace("__spk", "") for k in MODEL_REGISTRY})
     return {
         "status": "ok",
         "device": DEVICE,
-        "models_loaded": list(MODEL_REGISTRY.keys()),
+        "models_loaded": loaded,
         "models_available": list(MODEL_CONFIGS.keys()),
     }
 
@@ -572,19 +576,38 @@ async def transcribe(
     content = await file.read()
     suffix = os.path.splitext(file.filename)[1] if file.filename else ".wav"
     ext = suffix.lower()
+    is_video = ext in VIDEO_EXTS
 
-    # Store original audio
+    # Store original file (audio 或 视频文件)
     record_id = gen_id()
-    audio_filename = f"{record_id}{ext if ext in AUDIO_EXTS else '.wav'}"
+    orig_ext = ext if (ext in AUDIO_EXTS or is_video) else ".wav"
+    audio_filename = f"{record_id}{orig_ext}"
     audio_path = os.path.join(AUDIO_DIR, audio_filename)
     with open(audio_path, "wb") as f:
         f.write(content)
 
-    with tempfile.NamedTemporaryFile(delete=False, suffix=ext if ext in AUDIO_EXTS else ".wav") as tmp:
-        tmp.write(content)
-        tmp_path = tmp.name
-
     try:
+        # 模型输入：视频等格式先用 ffmpeg 转为 16k 单声道 wav，其余直接保存为临时文件
+        tmp_path = ""
+        try:
+            if is_video:
+                tmp_path = os.path.join(tempfile.gettempdir(), f"{record_id}.wav")
+                subprocess.run(
+                    [
+                        "ffmpeg", "-y", "-v", "error", "-i", audio_path,
+                        "-vn", "-ac", "1", "-ar", "16000",
+                        "-f", "wav", tmp_path,
+                    ],
+                    check=True,
+                )
+            else:
+                with tempfile.NamedTemporaryFile(delete=False, suffix=orig_ext) as tmp:
+                    tmp.write(content)
+                    tmp_path = tmp.name
+        except Exception as e:
+            logger.error(f"Audio prepare error: {e}")
+            raise HTTPException(400, f"无法处理音频/视频文件: {e}")
+
         # Use a model instance that includes CAM++ speaker model when spk requested
         asr_model = load_model(model, with_spk=spk)
         t0 = time.time()
@@ -723,6 +746,84 @@ async def download_result_api(record_id: str, _: bool = Depends(require_token)):
     return JSONResponse(rec)
 
 
+def record_to_md(rec):
+    """将识别记录渲染为 Markdown，包含说话人分离标签与时间戳。"""
+    name = rec.get("filename") or rec.get("id", "")
+    created = rec.get("created", "")
+    model = rec.get("model", "")
+    duration = rec.get("duration")
+    text = rec.get("text", "")
+
+    segments = rec.get("segments") or []
+    speakers = [s for s in sorted(set((seg.get("speaker") or "未知") for seg in segments if seg.get("text"))) if s]
+
+    lines = []
+    lines.append(f"# {name}")
+    lines.append("")
+    if created:
+        lines.append(f"- **识别时间**: {created}")
+    lines.append(f"- **模型**: {model}")
+    lines.append(f"- **时长**: {duration}s" if duration is not None else "")
+    if speakers:
+        lines.append(f"- **说话人**: {', '.join(speakers)}")
+    lines.append("")
+
+    lines.append("## 说话人分离结果")
+    lines.append("")
+    if not segments:
+        lines.append("（无分段信息）")
+        lines.append("")
+        lines.append("> 完整文本：")
+        lines.append(">")
+        for para in text.split("\n"):
+            lines.append(f"> {para}")
+    else:
+        lines.append("| 说话人 | 开始 (s) | 结束 (s) | 文本 |")
+        lines.append("|--------|---------|---------|------|")
+        for seg in segments:
+            spk = seg.get("speaker") or "未知"
+            start = seg.get("start", 0)
+            end = seg.get("end", 0)
+            t = (seg.get("text") or "").replace("|", "\\|").replace("\n", " ")
+            lines.append(f"| {spk} | {start} | {end} | {t} |")
+    lines.append("")
+
+    # 按时间顺序的分段视图
+    lines.append("### 分段详情")
+    lines.append("")
+    for seg in segments:
+        spk = seg.get("speaker") or "未知"
+        start = seg.get("start", 0)
+        end = seg.get("end", 0)
+        t = (seg.get("text") or "").strip()
+        lines.append(f"- **[{spk}]** `{start}s - {end}s`: {t}")
+    lines.append("")
+
+    # 完整文本
+    lines.append("## 完整文本")
+    lines.append("")
+    for para in text.split("\n"):
+        lines.append(para.strip())
+    lines.append("")
+
+    return "\n".join(lines)
+
+
+@app.get("/api/records/{record_id}/md")
+async def export_md_api(record_id: str, _: bool = Depends(require_token)):
+    """导出 Markdown（含说话人分离 + 时间戳）"""
+    rec, _ = find_record(record_id)
+    if not rec:
+        raise HTTPException(404, "Record not found")
+    base = os.path.splitext(rec.get("filename") or record_id)[0]
+    content = record_to_md(rec)
+    return Response(
+        content=content,
+        media_type="text/markdown; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{base}.md"'},
+    )
+
+
 @app.delete("/api/records/{record_id}")
 async def delete_record_api(record_id: str, _: bool = Depends(require_token)):
     """删除识别记录及原始音频文件"""
@@ -756,7 +857,8 @@ def main():
     DEVICE = args.device
     DEFAULT_MODEL = args.model
 
-    load_model(args.model)
+    # 启动即预加载默认模型（含说话人分离 CAM++），避免首次请求冷启动卡顿
+    load_model(args.model, with_spk=True)
 
     logger.info(f"FunASR Web Service starting on http://{args.host}:{args.port}")
     logger.info(f"  Device: {DEVICE} | Model: {args.model} | Workers: {args.workers}")

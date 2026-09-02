@@ -19,6 +19,8 @@ services:
       - funasr-cache:/root/.cache
       - ./data:/data
       - ./models:/models
+      - ./server.py:/app/server.py
+      - ./entrypoint.sh:/app/entrypoint.sh
     shm_size: "2gb"
     restart: unless-stopped
 
