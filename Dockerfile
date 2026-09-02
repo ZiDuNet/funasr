@@ -1,67 +1,39 @@
-# ═══════════════════════════════════════════════════
-#  FunASR All-in-One Dockerfile
-#  ──────────────────────────────────────────────
-#  包含: 标准 API / OpenAI API / 实时 WebSocket / MCP / 原生 WebUI
-#  ──────────────────────────────────────────────
-#  构建: docker compose build
-#  运行: docker compose up -d
-#  ═══════════════════════════════════════════════════
+FROM python:3.10-slim
 
-# 默认使用 DAO 云公共镜像（国内加速），海外构建: --build-arg BASE_IMAGE=python:3.10-slim
-ARG BASE_IMAGE=docker.m.daocloud.io/library/python:3.10-slim
-FROM ${BASE_IMAGE}
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
 
-# ── 元信息 ──────────────────────────────────────
-LABEL maintainer="ZiDuNet"
-LABEL description="FunASR 统一语音识别服务 - 标准 API + OpenAI API + 实时 WebSocket + MCP + 原生 WebUI"
+WORKDIR /app
 
-# ── 系统依赖（阿里云 apt 镜像）───────────────────
-# ffmpeg:  音频格式转码（mp3/mp4→PCM）
-# git:     funasr 从魔搭下载模型时需要
-# libsndfile1: 音频文件读写
-RUN sed -i 's/deb.debian.org/mirrors.aliyun.com/g' /etc/apt/sources.list.d/debian.sources \
-    && apt-get update \
+RUN apt-get update \
     && apt-get install -y --no-install-recommends \
-        ffmpeg git libsndfile1 \
+        ffmpeg \
+        git \
+        libsndfile1 \
+        libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# ── Python 依赖（阿里云 pip 镜像）─────────────────
-WORKDIR /app
-COPY requirements.txt .
+RUN python -m pip install --upgrade pip \
+    && pip install torch --index-url https://download.pytorch.org/whl/cpu \
+    && pip install \
+        funasr \
+        kaldi-native-fbank \
+        fastapi \
+        "uvicorn[standard]" \
+        python-multipart \
+        soundfile \
+        librosa
 
-# PyTorch: CUDA 版本支持 CPU 回退，单镜像 CPU/GPU 通用
-RUN pip install --upgrade pip -i https://mirrors.aliyun.com/pypi/simple/ \
-    && pip install --no-cache-dir torch torchaudio \
-        -i https://mirrors.aliyun.com/pypi/simple/ \
-        --index-url https://download.pytorch.org/whl/cu118 \
-    && pip install --no-cache-dir -r requirements.txt \
-        -i https://mirrors.aliyun.com/pypi/simple/
+COPY server.py /app/server.py
+COPY entrypoint.sh /app/entrypoint.sh
+RUN chmod +x /app/entrypoint.sh
 
-# ── 应用代码 ────────────────────────────────────
-COPY server/ ./server/
-COPY web/    ./web/
+RUN mkdir -p /data/audio /data/records /data/results
 
-# ── 数据目录 ────────────────────────────────────
-# /root/.cache/modelscope : 模型缓存（挂载持久化）
-# /app/data               : 任务结果 + 声纹库（挂载持久化）
-RUN mkdir -p /app/data /root/.cache/modelscope
-ENV MODELSCOPE_CACHE=/root/.cache/modelscope
+EXPOSE 8000
 
-# ── 环境变量（docker-compose 中可覆盖）────────────
-ENV FUNASR_DEVICE=cpu
-ENV FUNASR_PORT=17767
-ENV MODEL=fun-asr-nano
-ENV PRELOAD_ALL=true
-ENV ENABLE_STREAMING=true
-ENV ENABLE_MCP=true
-
-# ── 端口 ────────────────────────────────────────
-EXPOSE 17767
-
-# ── 健康检查 ────────────────────────────────────
-# 容器启动后 120s 开始检查，每 30s 一次，失败 3 次重启
 HEALTHCHECK --interval=30s --timeout=5s --start-period=120s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:17767/health', timeout=3)" || exit 1
+    CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)" || exit 1
 
-# ── 启动 ────────────────────────────────────────
-CMD ["sh", "-c", "python -m server.main"]
+ENTRYPOINT ["/app/entrypoint.sh"]

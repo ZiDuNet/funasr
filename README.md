@@ -1,307 +1,132 @@
-# FunASR All-in-One
+# FunASR Web Service 部署说明
 
-**一站式语音识别 Docker 服务** — 一个容器，全部能力，开箱即用。
-
----
-
-## ✨ 能力总览
-
-| 维度 | 说明 |
-|------|------|
-| **7 种入口** | 标准 API / OpenAI API / Realtime WebSocket / MCP / 异步任务 / 声纹管理 / Web UI |
-| **7 个 ASR 模型** | 从 234M 到 1.7B，覆盖 5-52 语言，`.env` 一键切换 |
-| **6 个辅助模型** | 流式 + VAD + 标点 + 说话人分离 + 情感识别，全部魔搭下载 |
-| **单镜像通用** | 一个镜像 CPU/GPU 通用，`FUNASR_DEVICE=cpu` 或 `FUNASR_DEVICE=cuda` 切换 |
-| **高并发** | 线程池 + Semaphore 并发控制，7 个维度可独立调节 |
-| **多租户** | 声纹分组隔离，group 级别管理，互不可见 |
-| **持久化** | 任务 JSON 落盘 + 自动清理（可配 TTL） |
-| **国内加速** | Docker 基础镜像 + apt/pip 阿里云镜像 + 模型走魔搭，全链路国内源 |
-
----
-
-## 🧠 ASR 模型（.env 中 `MODEL=` 切换）
-
-### 🤔 快速选型
-
-| 你的场景 | 推荐 `MODEL=` | 原因 |
-|----------|--------------|------|
-| 🎤 中文会议/通话 + 区分说话人 | `paraformer` | 中文最强，支持时间戳 + 说话人分离 |
-| 🌍 多语言（日/韩/法/德/方言等） | `fun-asr-nano` | 31 语言，LLM-based |
-| 😊 需要情感识别/音频事件 | `sensevoice` | 极快（10s 音频仅需 70ms），自带情感+事件 |
-| 🏆 最高精度，不在乎延迟 | `qwen3-asr` | 52 语言，上下文理解，需 GPU |
-| 🔀 识别 + 翻译 | `whisper-large-v3-turbo` | 性价比高，809M |
-| 📺 直播实时字幕 | 任意模型 + WebSocket 2pass | 实时 + 离线修正 |
-
-### 模型详情
-
-| `MODEL=` | 模型 | 自带能力 | 语言 | 大小 | GPU |
-|----------|------|------|------|------|-----|
-| **`fun-asr-nano`** ← 默认 | Fun-ASR-Nano | ASR + 标点 | 31 语言 | 800M | 可选 |
-| `sensevoice` | SenseVoiceSmall | ASR + 标点 + 情感 + 事件 | 中英日韩粤 | 234M | 可选 |
-| `paraformer` | Paraformer-zh | ASR | 中英 | 220M | 可选 |
-| `qwen3-asr` | Qwen3-ASR-1.7B | ASR | 52 语言 | 1.7B | ⚠️ 必须 |
-| `glm-asr-nano` | GLM-ASR-Nano-2512 | ASR | 17 语言 | 1.5B | ⚠️ 必须 |
-| `whisper-large-v3` | Whisper-large-v3 | ASR + 翻译 | 多语言 | 1550M | 可选 |
-| `whisper-large-v3-turbo` | Whisper-large-v3-turbo | ASR + 翻译 | 多语言 | 809M | 可选 |
-
-> 所有模型均通过辅助模型**自由组合**扩展能力：`fsmn-vad`(VAD) + `ct-punc`(标点) + `cam++`(说话人分离) + `emotion2vec`(情感)。SenseVoice 独有内置**事件检测**（BGM/Applause/Laughter 等）。
-
-> 首次使用自动从魔搭下载，后续秒启动。`⚠️ 必须 GPU` 的模型需要 bf16 精度，仅 Ampere+ GPU 支持。
-
-**辅助模型**（自动加载）：
-
-| 模型 | 能力 | 大小 |
-|------|------|------|
-| Paraformer-zh-streaming | 流式实时识别 | 220M |
-| fsmn-vad | 语音活动检测 | 0.4M |
-| ct-punc | 标点恢复 | 290M |
-| cam++ | 说话人分离 / 声纹 | 7.2M |
-| emotion2vec+large | 独立情感识别 | 300M |
-
-> ⚠️ **事件检测**仅 **SenseVoice** 支持（模型输出自带 `<|BGM|>` 等标签）。**情感识别**优先使用 SenseVoice 内置标签，其他模型可走 emotion2vec 辅助模型。**说话人分离**通过 cam++ 独立能力提供。
-
----
-
-## 🔌 接口能力
-
-| 接口 | 协议 | 端点 | 用途 |
-|------|------|------|------|
-| 🔌 **OpenAI 兼容 API** | HTTP | `POST /v1/audio/transcriptions` | 用 `openai` SDK 直接调，零改造成本 |
-| 📡 **标准 API** | HTTP | `POST /api/v1/transcriptions` | 文件上传转写，统一基准返回 |
-| 🔄 **Realtime API** | WS | `ws://host:17767/api/v1/realtime/transcriptions` | 实时麦克风 / 流式音频，支持 3 种模式 |
-| 🤖 **MCP 协议** | HTTP | `POST /mcp` | Claude Desktop / Cursor / Claude Code 直连 |
-| 📦 **异步任务** | HTTP | `POST /api/v1/transcription-jobs` | 长文件 / URL 远程转写，提交后轮询结果 |
-| 👥 **声纹管理** | HTTP | `/api/v1/speaker-groups` | 多租户声纹注册、匹配、删除 |
-| 🌐 **原生 WebUI** | Browser | `http://host:17767/` | 单页中文控制台（标准转写 / OpenAI 兼容 / 异步任务 / 实时流式 / 声纹 / 状态） |
-
-完整接口文档 → **[API.md](API.md)**　|　Swagger 交互文档 → `http://host:17767/docs`
-
-浏览器访问 `http://host:17767/` 会打开原生单页 WebUI。不同类型接口通过页面内 Tab 切换，不再提供 Gradio，也不再使用 `/ui` 或 `/web` 页面入口。
-
----
-
-## 🎛️ 接口可控参数
-
-| 参数 | 默认 | 说明 | 支持模型 |
-|------|------|------|----------|
-| `language` | `auto` | 语言提示 | 全部 |
-| `diarization` | `false` | 说话人分离（cam++） | 全部 |
-| `speaker_match` | `false` | 声纹组匹配 | 全部 |
-| `speaker_group` | — | 声纹组 ID，需同时启用 `speaker_match` | 全部 |
-| `emotion` | `false` | 情感标签 HAPPY/SAD/ANGRY 等（SenseVoice 内置 / 其他模型 emotion2vec） | 全部 |
-| `events` | `false` | 音频事件 BGM/Applause/Laughter 等 | SenseVoice |
-| `punctuation` | `true` | 标点恢复（SenseVoice/Fun-ASR-Nano 内置 / 其他模型 ct-punc） | 全部 |
-| `hotwords` | — | 热词 JSON | SenseVoice / Paraformer |
-
----
-
-## 📦 标准返回
-
-所有转写入口最终都会产出同一套基准结果。增强能力只是在这个结构上追加字段：
-
-```json
-{
-  "text": "完整转写文本。",
-  "duration": 12.34,
-  "paragraph_count": 1,
-  "sentence_count": 2,
-  "paragraphs": [
-    {"id": 0, "start": 0.32, "end": 8.1, "text": "第一句。第二句。", "sentence_ids": [0, 1]}
-  ],
-  "sentences": [
-    {"id": 0, "paragraph_id": 0, "start": 0.32, "end": 3.6, "text": "第一句。"}
-  ]
-}
-```
-
-开启 `diarization` 后，`sentences[].speaker.id` 会出现；开启 `speaker_match` 后会增加 `name`、`score`、`group_id`。详见 [API.md](API.md)。
-
----
-
-## 🔄 流式模式
-
-| 模式 | 说明 | 延迟 |
-|------|------|------|
-| `online` | 纯流式，实时输出 | ~300ms |
-| `offline` | VAD 断句后离线识别 | 1-3s |
-| `2pass` | 实时 + 离线修正（推荐） | 兼顾低延迟和高精度 |
-
----
-
-## 快速开始
-
-```bash
-git clone https://github.com/ZiDuNet/funasr.git
-cd funasr/api
-
-# 方式一：云端镜像（推荐，无需构建）
-cp .env.example .env
-docker compose up -d
-
-# 方式二：本地构建
-cp .env.example .env
-docker compose -f docker-compose.build.yml build
-docker compose -f docker-compose.build.yml up -d
-
-# CPU/GPU 专属配置
-cp docker/.env.cpu .env    # CPU 环境
-cp docker/.env.gpu .env    # GPU 环境
-
-# 等模型下载完成（首次，后续秒启动）
-docker logs -f funasr
-
-# 验证
-curl http://localhost:17767/health
-```
-
-## Compose 文件说明
-
-| 文件 | 用途 |
-|------|------|
-| `docker-compose.yml` | **默认**，拉取云端镜像直接启动 |
-| `docker-compose.build.yml` | 本地 Dockerfile 构建 |
-| `docker/docker-compose.cpu.build.yml` | CPU 本地构建 |
-| `docker/docker-compose.gpu.build.yml` | GPU 本地构建 |
-| `docker/docker-compose.cpu.pull.yml` | CPU 云端镜像 |
-| `docker/docker-compose.gpu.pull.yml` | GPU 云端镜像 |
-
-## 切换模型
-
-```bash
-# 编辑 .env
-MODEL=qwen3-asr              # 切到 Qwen3-ASR
-FUNASR_DEVICE=cuda           # 大模型需 GPU
-
-# 重启
-docker compose restart
-docker logs -f funasr
-
-# GPU 模式（需 NVIDIA Container Toolkit）
-cp docker/.env.gpu .env
-docker compose -f docker/docker-compose.gpu.build.yml up -d
-```
-
-## 常用操作
-
-```bash
-docker compose up -d          # 启动（云端镜像）
-docker compose logs -f        # 日志
-docker compose restart        # 重启
-docker compose down           # 停止
-```
-
----
-
-## 配置
-
-| 环境变量 | 默认值 | 说明 |
-|---------|--------|------|
-| `FUNASR_DEVICE` | `cpu` | `cpu` / `cuda`（同一镜像，无需重建） |
-| `MODEL` | `fun-asr-nano` | ASR 模型选择（见上表） |
-| `PRELOAD_ALL` | `true` | 启动预加载所有模型 |
-| `ENABLE_STREAMING` | `true` | WebSocket 流式 |
-| `ENABLE_MCP` | `true` | MCP 协议 |
-| `FUNASR_DATA_TTL_DAYS` | `7` | 任务保留天数 |
-| `API_TOKEN` | 空 | Token 认证（留空不认证） |
-| `FUNASR_PORT` | `17767` | 服务端口 |
-
----
-
-## API 速览
-
-```bash
-# 转写
-curl http://localhost:17767/api/v1/transcriptions -F file=@audio.wav
-
-# 带 Token 认证（.env 中设置了 API_TOKEN 时；标准 API 同样支持 Authorization）
-curl -H "Authorization: Bearer your-token" \
-  http://localhost:17767/api/v1/transcriptions -F file=@audio.wav
-
-# 带说话人分离 + 情感
-curl http://localhost:17767/api/v1/transcriptions \
-  -F file=@meeting.wav -F diarization=true -F emotion=true
-
-# 声纹注册 → 获得 group_id
-curl -X POST http://localhost:17767/api/v1/speaker-groups
-curl -X POST http://localhost:17767/api/v1/speaker-groups/grp_abc123/speakers \
-  -F audio=@ref.wav -F name=张三
-
-# 转写 + 声纹匹配（sentences[].speaker 会包含注册名和匹配分数）
-curl -X POST http://localhost:17767/api/v1/transcriptions \
-  -F file=@meeting.wav \
-  -F diarization=true \
-  -F speaker_match=true \
-  -F speaker_group=grp_abc123
-
-# 异步任务（URL）
-curl -X POST http://localhost:17767/api/v1/transcription-jobs \
-  -F url=https://example.com/long_audio.mp3
-
-# OpenAI SDK（api_key 即为 API_TOKEN）
-python -c "
-from openai import OpenAI
-c = OpenAI(base_url='http://localhost:17767/v1', api_key='your-token')
-r = c.audio.transcriptions.create(
-    model='funasr',
-    file=open('audio.wav','rb'),
-    response_format='verbose_json',
-    extra_body={'diarization': True}
-)
-print(r.text)
-"
-```
-
-> OpenAI 兼容接口默认 `response_format=json` 时只返回 `{"text": "..."}`；需要段落、句子时间轴和扩展字段时使用标准 API，或在 OpenAI SDK 中设置 `response_format="verbose_json"`。
-
----
+基于 Docker 的语音识别（ASR）+ 说话人分离（Speaker Diarization）服务，CPU 运行，提供 Web 上传界面、历史记录管理、接口文档。
 
 ## 目录结构
 
 ```
-api/
-├── server/                  ← FastAPI 后端
-│   ├── models/
-│   │   ├── config.py        ← 7 个模型预设 + .env 驱动
-│   │   └── registry.py      ← 单例模型注册中心
-│   ├── core/
-│   │   ├── inference.py     ← 统一推理层
-│   │   ├── audio.py         ← ffmpeg 音频转码
-│   │   ├── postprocess.py   ← 文本清洗/情感/事件
-│   │   ├── task_manager.py  ← 异步任务
-│   │   └── speaker_db.py    ← 声纹库（多租户）
-│   ├── api/                 ← 标准 API / OpenAI 兼容 / 任务 / 声纹 / 流式
-│   ├── mcp_server.py        ← MCP 协议
-│   ├── app.py               ← FastAPI + CORS
-│   └── main.py              ← 0.0.0.0 启动
-├── web/                     ← Web UI（挂载，改前端无需重建）
-├── models/                  ← 模型缓存（挂载持久化）
-├── data/                    ← 任务 + 声纹（挂载持久化）
-├── docker-compose.yml       ← 默认（云端镜像）
-├── docker-compose.build.yml ← 本地构建版
-├── docker/
-│   ├── .env.cpu / .env.gpu  ← CPU/GPU 环境配置
-│   ├── docker-compose.cpu.build.yml / .gpu.build.yml
-│   └── docker-compose.cpu.pull.yml / .gpu.pull.yml
-├── Dockerfile
-├── requirements.txt
-├── .env.example
-├── API.md
-└── README.md
+funasr-docker/
+├── Dockerfile              # 镜像构建
+├── docker-compose.yml      # 容器编排
+├── entrypoint.sh           # 启动脚本
+├── server.py               # Web服务 + 识别逻辑
+├── .env                    # 环境配置
+├── .env.example            # 配置模板
+├── data/                   # 持久化数据（自动创建）
+│   ├── audio/              # 上传的原始音频
+│   ├── records/            # 识别记录 JSON
+│   └── results/            # 识别结果 JSON
+└── models/                 # 本地模型目录（可选，预下载）
 ```
 
----
+## 快速启动
 
-## ⚠️ 注意事项
+```bash
+cd funasr-docker
+docker compose up -d --build
+```
 
-| 事项 | 说明 |
-|------|------|
-| **局域网麦克风** | 浏览器安全策略限制，非 HTTPS 页面禁止麦克风。本地用 `localhost`，局域网需 Chrome flag 或 HTTPS |
-| **emotion2vec 警告** | `Warning, miss key in ckpt` 是 FunASR 正常日志，不影响功能 |
-| **大模型 GPU** | Qwen3-ASR / GLM-ASR 需要 bf16 精度，仅 NVIDIA Ampere+ (A100/3090/4090 等) 支持 |
-| **模型兼容性** | 以 `/api/v1/capabilities` 为准；事件仅 SenseVoice；情感可由 SenseVoice 标签或 emotion2vec 提供 |
+启动后访问：
+- **Web 管理界面**: http://localhost:11800
+- **API 文档 (Swagger)**: http://localhost:11800/docs
+- **ReDoc**: http://localhost:11800/redoc
 
----
+## 配置 (.env)
 
-## License
+| 变量 | 默认值 | 说明 |
+|---|---|---|
+| `FUNASR_HOST_PORT` | `11800` | 宿主机映射端口 |
+| `FUNASR_DEVICE` | `cpu` | 运行设备 |
+| `FUNASR_MODEL` | `sensevoice` | 默认模型（sensevoice/paraformer） |
+| `FUNASR_WORKERS` | `1` | 并发 worker 数，每个约占 1.2GB 内存 |
+| `FUNASR_TOKEN` | 空 | 访问令牌，为空则不鉴权 |
 
-MIT — 基于 [FunASR](https://github.com/modelscope/FunASR) 构建
+调整并发：修改 `.env` 中 `FUNASR_WORKERS=2` 后 `docker compose up -d`。
+
+## 功能
+
+### Web 界面
+- 上传音频（支持多文件、拖拽）
+- 选择模型 + 说话人分离开关
+- 查看识别结果（分段 + 说话人标签 + 时间戳）
+- 历史记录管理（查看/下载/删除）
+
+### API 接口
+| 方法 | 路径 | 说明 |
+|---|---|---|
+| POST | `/v1/audio/transcriptions` | OpenAI 兼容转写接口 |
+| GET  | `/api/records` | 历史记录列表 |
+| GET  | `/api/records/{id}` | 单条记录详情 |
+| GET  | `/api/records/{id}/audio` | 下载原音频 |
+| GET  | `/api/records/{id}/result` | 下载结果 JSON |
+| DELETE | `/api/records/{id}` | 删除记录及文件 |
+| GET  | `/v1/models` | 模型列表 |
+| GET  | `/health` | 健康检查 |
+
+### curl 调用示例
+
+> 配置了 `FUNASR_TOKEN` 后，所有受保护接口需带 `Authorization: Bearer <token>` 请求头（`/health`、`/docs`、`/v1/models` 除外）。
+
+```bash
+TOKEN=wushuo1998
+
+# 语音识别 + 说话人分离
+curl http://localhost:11800/v1/audio/transcriptions \
+  -H "Authorization: Bearer $TOKEN" \
+  -F file=@meeting.wav \
+  -F model=sensevoice \
+  -F spk=true \
+  -F response_format=verbose_json
+
+# 仅识别
+curl http://localhost:11800/v1/audio/transcriptions \
+  -H "Authorization: Bearer $TOKEN" \
+  -F file=@audio.mp3 -F model=paraformer
+
+# 列历史记录
+curl http://localhost:11800/api/records \
+  -H "Authorization: Bearer $TOKEN"
+
+# 删除记录
+curl -X DELETE http://localhost:11800/api/records/{id} \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+## Python SDK 调用
+
+```python
+from openai import OpenAI
+
+client = OpenAI(base_url="http://localhost:11800/v1", api_key="wushuo1998")
+
+result = client.audio.transcriptions.create(
+    model="sensevoice",
+    file=open("meeting.wav", "rb"),
+    response_format="verbose_json",
+    extra_body={"spk": True},
+)
+for seg in result.segments:
+    print(seg.speaker, seg.start, seg.end, seg.text)
+```
+
+## 模型下载
+
+首次启动会自动从 ModelScope 下载模型（约 1.2GB），国内速度较快。也可预下载到 `models/` 目录：
+
+```bash
+python -m pip install modelscope
+modelscope download --model iic/SenseVoiceSmall --local_dir ./models/SenseVoiceSmall
+modelscope download --model iic/speech_campplus_sv_zh-cn_16k-common --local_dir ./models/cam++
+modelscope download --model iic/speech_fsmn_vad_zh-cn-16k-common-4.0.1 --local_dir ./models/fsmn-vad
+```
+
+## 资源占用
+
+| 组件 | 内存 | 说明 |
+|---|---|---|
+| SenseVoice (ASR) | ~600MB | 多语言识别 |
+| CAM++ (说话人) | ~400MB | 惰性加载，仅 spk=true 时启用 |
+| Paraformer (备用) | ~400MB | 可选中文模型 |
+| 每个 worker | ~1GB | 额外复制 |
+
+1 worker 约需 **2GB** 内存，多 worker 按比例增加。

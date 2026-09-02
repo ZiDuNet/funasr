@@ -1,45 +1,26 @@
-# ═══════════════════════════════════════════════════
-#  FunASR All-in-One — 云端镜像版（默认）
-#  ──────────────────────────────────────────────
-#  直接拉取阿里云 ACR 预构建镜像，无需本地构建
-#  ═══════════════════════════════════════════════════
-#  使用:
-#   1. cp .env.example .env
-#   2. docker compose up -d
-# ═══════════════════════════════════════════════════
-
 services:
   funasr:
-    image: crpi-kdrx8sxe4fzlfrwj.cn-hangzhou.personal.cr.aliyuncs.com/wushuo98/funasr:latest
-    container_name: funasr
-
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: funasr-api:local
     ports:
-      - "${FUNASR_PORT:-17767}:17767"
-
+      - "${FUNASR_HOST_PORT:-8000}:8000"
     environment:
-      - FUNASR_DEVICE=${FUNASR_DEVICE:-cpu}
-      - MODEL=${MODEL:-sensevoice}
-      - FUNASR_PORT=17767
-      - PRELOAD_ALL=${PRELOAD_ALL:-true}
-      - ENABLE_STREAMING=${ENABLE_STREAMING:-true}
-      - ENABLE_MCP=${ENABLE_MCP:-true}
-      - MODELSCOPE_CACHE=/root/.cache/modelscope
-      - FUNASR_DATA_DIR=/app/data
-
+      FUNASR_HOST: "0.0.0.0"
+      FUNASR_PORT: "8000"
+      FUNASR_DEVICE: "${FUNASR_DEVICE:-cpu}"
+      FUNASR_MODEL: "${FUNASR_MODEL:-sensevoice}"
+      FUNASR_WORKERS: "${FUNASR_WORKERS:-1}"
+      FUNASR_DATA_DIR: "/data"
+      FUNASR_TOKEN: "${FUNASR_TOKEN:-}"
+      MODELSCOPE_CACHE: "/models"
     volumes:
-      - ./models:/root/.cache/modelscope:z
-      - ./data:/app/data:z
-      - ./web:/app/web:z
-      - ./hotwords.txt:/app/hotwords.txt:ro
-
+      - funasr-cache:/root/.cache
+      - ./data:/data
+      - ./models:/models
     shm_size: "2gb"
     restart: unless-stopped
 
-    # ── GPU 模式 ──────────────────────────────
-    # deploy:
-    #   resources:
-    #     reservations:
-    #       devices:
-    #         - driver: nvidia
-    #           count: all
-    #           capabilities: [gpu]
+volumes:
+  funasr-cache:
