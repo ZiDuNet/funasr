@@ -94,7 +94,9 @@ button.primary:hover { background: var(--primary-dark); }
 button.danger { background: #fee2e2; color: #dc2626; border: 1px solid #fca5a5; cursor: pointer; }
 .toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; font-size: 14px; }
 .toggle input { width: 18px; height: 18px; }
-.result-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-top: 16px; white-space: pre-wrap; font-size: 14px; line-height: 1.8; }
+.result-box { background: #f9fafb; border: 1px solid #e5e7eb; border-radius: 8px; padding: 16px; margin-top: 0; white-space: pre-wrap; font-size: 14px; line-height: 1.8; max-height: 480px; overflow-y: auto; }
+.result-toolbar { display:flex; align-items:center; gap:10px; margin-top:16px; padding:8px 12px; background:#f0fdf4; border:1px solid #bbf7d0; border-radius:8px 8px 0 0; font-size:13px; color:#166534; }
+.result-toolbar a { color:var(--primary); font-weight:600; text-decoration:none; padding:5px 12px; border-radius:6px; border:1px solid var(--primary); background:#eef2ff; }
 .seg { margin-bottom: 10px; }
 .seg .badge { display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 12px; margin-right: 8px; color: #fff; }
 .spk0 { background: #4f46e5; }
@@ -172,6 +174,12 @@ tr:hover td { background: #f9fafb; }
         <span style="flex:1"></span>
         <button class="primary" id="uploadBtn">开始识别</button>
       </div>
+      <div class="result-toolbar" id="resultToolbar" style="display:none">
+        <span id="resultSummary"></span>
+        <span style="flex:1"></span>
+        <a id="exportMdBtn" href="#" onclick="return false" style="pointer-events:none;opacity:.4">导出MD</a>
+        <a id="exportJsonBtn" href="#" onclick="return false" style="pointer-events:none;opacity:.4">下载结果</a>
+      </div>
       <div class="result-box" id="resultBox" style="display:none"></div>
     </div>
   </div>
@@ -192,6 +200,7 @@ tr:hover td { background: #f9fafb; }
 
 <script>
 let selectedFiles = [];
+let lastRecordId = null;
 const spkColors = ['#4f46e5','#db2777','#059669','#d97706','#0891b2'];
 
 function getToken() { return localStorage.getItem('funasr_token') || ''; }
@@ -307,7 +316,7 @@ async function handleUpload() {
   let html = '';
   results.forEach((r) => {
     html += '<div style="margin-bottom:24px"><h3 style="font-size:14px;margin:8px 0">📄 ' + r.name + '</h3>';
-    html += '<div style="font-size:12px;color:#6b7280;margin-bottom:8px">时长: ' + (r.data.duration||'') + 's 模型: ' + (r.data.model||'') + '</div>';
+    html += '<div style="font-size:12px;color:#6b7280;margin-bottom:8px">音频时长: ' + (r.data.duration||'') + 's · 识别耗时: ' + (r.data.processing_time||'') + 's · 模型: ' + (r.data.model||'') + '</div>';
     const segs = r.data.segments || [];
     if (segs.length) {
       segs.forEach(s => {
@@ -325,6 +334,18 @@ async function handleUpload() {
     html += '</div>';
   });
   box.innerHTML = html;
+
+  // 显示工具栏，绑定导出按钮
+  if (results.length && results[0].data.record_id) {
+    lastRecordId = results[0].data.record_id;
+    const tid = lastRecordId;
+    document.getElementById('resultSummary').textContent = '识别完成 · 共 ' + results.reduce((a,r)=> a+(r.data.segments||[]).length, 0) + ' 段';
+    const mdBtn = document.getElementById('exportMdBtn');
+    mdBtn.href = '/api/records/' + tid + '/md'; mdBtn.style.pointerEvents='auto'; mdBtn.style.opacity='1';
+    const jBtn = document.getElementById('exportJsonBtn');
+    jBtn.href = '/api/records/' + tid + '/result'; jBtn.style.pointerEvents='auto'; jBtn.style.opacity='1';
+    document.getElementById('resultToolbar').style.display = 'flex';
+  }
   btn.disabled = false; btn.classList.remove('loading');
   btn.innerHTML = '开始识别';
 }
@@ -680,7 +701,8 @@ async def transcribe(
                 "text": text,
                 "segments": segments,
                 "language": record["language"],
-                "duration": round(elapsed, 3),
+                "duration": duration,
+                "processing_time": round(elapsed, 3),
                 "model": model,
                 "record_id": record_id,
             })
